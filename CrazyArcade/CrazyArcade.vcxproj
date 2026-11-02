@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{7cfe9a89-b875-42ba-88a0-d8ceb4b38a62}</ProjectGuid>
+    <RootNamespace>CrazyArcade</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)Output\bin_debug\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)Output\bin\</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalOptions>winmm.lib %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="Board.h" />
+    <ClInclude Include="Bomb.h" />
+    <ClInclude Include="CrazyArcade.h" />
+    <ClInclude Include="framework.h" />
+    <ClInclude Include="pch.h" />
+    <ClInclude Include="Player.h" />
+    <ClInclude Include="Resource.h" />
+    <ClInclude Include="resource1.h" />
+    <ClInclude Include="resource2.h" />
+    <ClInclude Include="ResourceManager.h" />
+    <ClInclude Include="targetver.h" />
+    <ClInclude Include="Train.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Board.cpp" />
+    <ClCompile Include="Bomb.cpp" />
+    <ClCompile Include="CrazyArcade.cpp" />
+    <ClCompile Include="Player.cpp" />
+    <ClCompile Include="ResourceManager.cpp" />
+    <ClCompile Include="Train.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="CrazyArcade.rc" />
+    <ResourceCompile Include="Resource.rc" />
+    <ResourceCompile Include="Resource2.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\..\..\Downloads\Image\Player\Ba_Walk_Back.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\1.bmp" />
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap1.bmp" />
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap2.bmp" />
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap7.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\down1.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\down2.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_10.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_5.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_6.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_7.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_8.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_9.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\left1.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\left2.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\namu_map1.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\pop.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\right1.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\right2.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\up1.bmp" />
+    <Image Include="..\..\crazyArcadeResource\Resource\up2.bmp" />
+    <Image Include="CrazyArcade.ico" />
+    <Image Include="Resource\1.bmp" />
+    <Image Include="resource\bitmap1.bmp" />
+    <Image Include="Resource\city_tile\blinker.bmp" />
+    <Image Include="Resource\city_tile\blinker_on.bmp" />
+    <Image Include="Resource\city_tile\building1.bmp" />
+    <Image Include="Resource\city_tile\building2.bmp" />
+    <Image Include="Resource\city_tile\building3.bmp" />
+    <Image Include="Resource\city_tile\citty_objects.bmp" />
+    <Image Include="Resource\city_tile\City_item.bmp" />
+    <Image Include="Resource\city_tile\city_tile_max.bmp" />
+    <Image Include="Resource\city_tile\Rail.bmp" />
+    <Image Include="Resource\city_tile\Train.bmp" />
+    <Image Include="Resource\city_tile\trash.bmp" />
+    <Image Include="Resource\down1.bmp" />
+    <Image Include="Resource\down2.bmp" />
+    <Image Include="Resource\forest_tile\Forest_Apple.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\AppleBox.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\block_1.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\block_2.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\block_3.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\block_4.bmp" />
+    <Image Include="Resource\forest_tile\forest_obstacle\block_5.bmp" />
+    <Image Include="Resource\forest_tile\MAX_TILE.bmp" />
+    <Image Include="Resource\forest_tile\tile_10.bmp" />
+    <Image Include="Resource\forest_tile\tile_5.bmp" />
+    <Image Include="Resource\forest_tile\tile_6.bmp" />
+    <Image Include="Resource\forest_tile\tile_7.bmp" />
+    <Image Include="Resource\forest_tile\tile_8.bmp" />
+    <Image Include="Resource\forest_tile\tile_9.bmp" />
+    <Image Include="Resource\game_start\Back_Login.bmp" />
+    <Image Include="Resource\game_start\game_end.bmp" />
+    <Image Include="Resource\game_start\game_end.png" />
+    <Image Include="Resource\game_start\P1_Check.bmp" />
+    <Image Include="Resource\game_start\P2_Check.bmp" />
+    <Image Include="Resource\game_start\Select_Stage.bmp" />
+    <Image Include="Resource\Game_UI.bmp" />
+    <Image Include="Resource\ice_tile\Heart.bmp" />
+    <Image Include="Resource\ice_tile\iceobjs.bmp" />
+    <Image Include="Resource\ice_tile\map_ice_block.bmp" />
+    <Image Include="Resource\ice_tile\map_ice_block2.bmp" />
+    <Image Include="Resource\ice_tile\map_ice_tile1.bmp" />
+    <Image Include="Resource\ice_tile\MAX_ICE_TILE.bmp" />
+    <Image Include="Resource\item\Power.bmp" />
+    <Image Include="Resource\item\Roller.bmp" />
+    <Image Include="Resource\item\Water.bmp" />
+    <Image Include="Resource\left1.bmp" />
+    <Image Include="Resource\left2.bmp" />
+    <Image Include="Resource\namu_map1.bmp" />
+    <Image Include="Resource\Player\bazzi.bmp" />
+    <Image Include="Resource\Player\bazzi_mask.bmp" />
+    <Image Include="Resource\pop.bmp" />
+    <Image Include="Resource\right1.bmp" />
+    <Image Include="Resource\right2.bmp" />
+    <Image Include="Resource\up1.bmp" />
+    <Image Include="Resource\up2.bmp" />
+    <Image Include="small.ico" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

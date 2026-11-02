@@ -1,0 +1,325 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="소스 파일">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="헤더 파일">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="리소스 파일">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="헤더 파일\ResourceManager">
+      <UniqueIdentifier>{59395528-e44f-4e3c-a5f1-5eba1a19e876}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="framework.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Resource.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="CrazyArcade.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Player.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Board.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Bomb.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="resource1.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="resource2.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ResourceManager.h">
+      <Filter>헤더 파일\ResourceManager</Filter>
+    </ClInclude>
+    <ClInclude Include="Train.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CrazyArcade.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Player.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Board.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Bomb.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="ResourceManager.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="Train.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="CrazyArcade.rc">
+      <Filter>리소스 파일</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="Resource.rc">
+      <Filter>리소스 파일</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="Resource2.rc">
+      <Filter>리소스 파일</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="small.ico">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="CrazyArcade.ico">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\down1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\pop.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\down2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\up1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\up2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\left1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\left2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\right1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\right2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\namu_map1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_5.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_6.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_7.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_8.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_9.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyArcadeResource\Resource\forest_tile\tile_10.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\crazyarcaderesource\resource\bitmap7.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\Game_UI.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\down1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\pop.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\down2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\up1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\up2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\left1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\left2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\right1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\right2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\namu_map1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_5.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_6.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_7.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_8.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_9.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\tile_10.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="resource\bitmap1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\block_1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\block_2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\block_3.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\block_4.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\block_5.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\Back_Login.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\Select_Stage.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="..\..\..\..\Downloads\Image\Player\Ba_Walk_Back.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\Player\bazzi.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\Player\bazzi_mask.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\P1_Check.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\P2_Check.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\Forest_Apple.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\forest_obstacle\AppleBox.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\game_end.png">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\game_start\game_end.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\item\Power.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\item\Roller.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\item\Water.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\forest_tile\MAX_TILE.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\iceobjs.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\map_ice_tile1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\MAX_ICE_TILE.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\map_ice_block.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\map_ice_block2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\ice_tile\Heart.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\city_tile_max.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\Rail.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\Train.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\building1.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\building2.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\building3.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\citty_objects.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\trash.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\blinker.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\blinker_on.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+    <Image Include="Resource\city_tile\City_item.bmp">
+      <Filter>리소스 파일</Filter>
+    </Image>
+  </ItemGroup>
+</Project>
