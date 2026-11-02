@@ -11,3 +11,6 @@ Debug/
 Release/
 x64/
 x86/
+
+# Executable output
+Output/bin_debug/
