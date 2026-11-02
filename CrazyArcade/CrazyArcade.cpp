@@ -338,6 +338,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             }
         }
+            // Advance all timers before resolving newly started explosions.
+            for (Bomb& bomb : p1bombs) bomb.tick_Bomb();
+            for (Bomb& bomb : p2bombs) bomb.tick_Bomb();
+            for (Bomb& bomb : p1bombs) {
+                if (bomb.GetState() == 2 && bomb.GetTime() == 10)
+                    update_BombExplosion(bomb, board, &p1);
+            }
+            for (Bomb& bomb : p2bombs) {
+                if (bomb.GetState() == 2 && bomb.GetTime() == 10)
+                    update_BombExplosion(bomb, board, &p2);
+            }
+
             //플레이어 폭탄 충돌
             for (int i = 0;i < p1bombs.size();++i) {
 				if (!p1bombs.data()[i].GetIsCollisionPlayer()&&p1bombs.data()[i].GetState() == 2) {
@@ -430,27 +442,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             
             
-            for (int i = 0;i < p1bombs.size();++i) {
-                if (p1bombs.data()[i].GetState() == 2) {
-                    board[p1bombs.data()[i].GetLogicalX()][p1bombs.data()[i].GetLogicalY()].obstacle = 0; // 폭탄이 터지면 해당 위치의 장애물 제거
-
-                }
-                if (p1bombs.data()[i].tick_Bomb()) {
-                     
-                     p1bombs.erase(p1bombs.begin() + i);
-                 }
+            // Remove inactive bombs after hit processing, without skipping entries.
+            for (int i = static_cast<int>(p1bombs.size()) - 1; i >= 0; --i) {
+                if (p1bombs[i].GetState() == 0)
+                    p1bombs.erase(p1bombs.begin() + i);
             }
-            for (int i = 0;i < p2bombs.size();++i) {
-                if (p2bombs.data()[i].GetState() == 2) {
-                    board[p2bombs.data()[i].GetLogicalX()][p2bombs.data()[i].GetLogicalY()].obstacle = 0; // 폭탄이 터지면 해당 위치의 장애물 제거
-
-                     }
-				if (p2bombs.data()[i].tick_Bomb()) {
-                   
+            for (int i = static_cast<int>(p2bombs.size()) - 1; i >= 0; --i) {
+                if (p2bombs[i].GetState() == 0)
                     p2bombs.erase(p2bombs.begin() + i);
-                }
             }
-          
+
             break;
             }
    
@@ -734,8 +735,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 					DeleteDC(ItemSpeedDC);
                     if (selected_stage == 1) {
                         draw_tile_forest(mem);
-                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board, &p1);
-                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board, &p2);
+                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board);
+                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board);
                         DrawGrid_Forest(mem, g_hInst, board, &p1, &p2);
                         //p1.Draw_Player(mem, &p1, RGB(255, 0, 255));
                         //p2.Draw_Player(mem, &p2, RGB(0, 255, 255));
@@ -777,8 +778,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 					else if (selected_stage == 2) {
 						// 다른 스테이지 처리
                         draw_tile_city(mem);
-                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board, &p1);
-                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board, &p2);
+                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board);
+                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board);
 						DrawGrid_City(mem, g_hInst, board, &p1, &p2,train);
 
                         //플레이어 시간 출력
@@ -800,8 +801,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 					else if (selected_stage == 3) {
 						// 다른 스테이지 처리
                         draw_tile_ice(mem);
-                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board, &p1);
-                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board, &p2);
+                        draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board);
+                        draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board);
 						DrawGrid_Ice(mem, g_hInst, board, &p1, &p2);
                         wchar_t positionText[50];
                         swprintf(positionText, 50, L"Y: %d, X: %d", p1.GetY(), p1.GetX());

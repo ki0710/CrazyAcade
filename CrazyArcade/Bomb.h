@@ -53,4 +53,5 @@ public:
 
 	
 };
-void draw_Bomb(HDC hDC, HINSTANCE g_hInst, Bomb bombs[], int n, Board board[MAP_TILES][MAP_TILES], Player* player);
+void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player);
+void draw_Bomb(HDC hDC, HINSTANCE g_hInst, const Bomb bombs[], int n, const Board board[MAP_TILES][MAP_TILES]);

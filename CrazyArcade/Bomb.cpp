@@ -60,7 +60,92 @@ int Bomb::collision_bomb_player(Bomb bomb, Player player)
 }
 
 
-void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TILES][MAP_TILES],Player *player)
+// Called once when a bomb enters the explosion state, before player hit tests.
+void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player)
+{
+    if (bomb.GetState() != 2) return;
+    int logicX = bomb.GetLogicalY();
+    int logicY = bomb.GetLogicalX();
+    board[logicY][logicX].obstacle = 0;
+    for (int j = 0; j < bomb.GetReachLeft(); ++j) {
+        int nx = logicX - j - 1;
+        if (nx < 0) break;
+        if (board[logicY][nx].obstacle == 1) {
+            if (!bomb.GetIsCollisionLeft()) {
+                board[logicY][nx].obstacle = 0;
+                bomb.SetReachLeft(j + 1);
+            }
+            bomb.SetIsCollisionLeft(true);
+            break;
+        }
+        else if (board[logicY][nx].obstacle == 2) {
+            if (!bomb.GetIsCollisionLeft()) {
+                bomb.SetIsCollisionLeft(true);
+                bomb.SetReachLeft(j + 1);
+                player->SetCurrentApple(player->GetCurrentApple() + 1);
+            }
+        }
+    }
+    for (int j = 0; j < bomb.GetReachRight(); ++j) {
+        int nx = logicX + j + 1;
+        if (nx >= MAP_TILES) break;
+        if (board[logicY][nx].obstacle == 1) {
+            if (!bomb.GetIsCollisionRight()) {
+                board[logicY][nx].obstacle = 0;
+                bomb.SetReachRight(j + 1);
+            }
+            bomb.SetIsCollisionRight(true);
+            break;
+        }
+        else if (board[logicY][nx].obstacle == 2) {
+            if (!bomb.GetIsCollisionRight()) {
+                bomb.SetIsCollisionRight(true);
+                bomb.SetReachRight(j + 1);
+                player->SetCurrentApple(player->GetCurrentApple() + 1);
+            }
+        }
+    }
+    for (int j = 0; j < bomb.GetReachUp(); ++j) {
+        int ny = logicY - j - 1;
+        if (ny < 0) break;
+        if (board[ny][logicX].obstacle == 1) {
+            if (!bomb.GetIsCollisionUp()) {
+                board[ny][logicX].obstacle = 0;
+                bomb.SetReachUp(j + 1);
+            }
+            bomb.SetIsCollisionUp(true);
+            break;
+        }
+        else if (board[ny][logicX].obstacle == 2) {
+            if (!bomb.GetIsCollisionUp()) {
+                bomb.SetIsCollisionUp(true);
+                bomb.SetReachUp(j + 1);
+                player->SetCurrentApple(player->GetCurrentApple() + 1);
+            }
+        }
+    }
+    for (int j = 0; j < bomb.GetReachDown(); ++j) {
+        int ny = logicY + j + 1;
+        if (ny >= MAP_TILES) break;
+        if (board[ny][logicX].obstacle == 1) {
+            if (!bomb.GetIsCollisionDown()) {
+                board[ny][logicX].obstacle = 0;
+                bomb.SetReachDown(j + 1);
+            }
+            bomb.SetIsCollisionDown(true);
+            break;
+        }
+        else if (board[ny][logicX].obstacle == 2) {
+            if (!bomb.GetIsCollisionDown()) {
+                bomb.SetIsCollisionDown(true);
+                bomb.SetReachDown(j + 1);
+                player->SetCurrentApple(player->GetCurrentApple() + 1);
+            }
+        }
+    }
+}
+
+void draw_Bomb(HDC hDC,HINSTANCE g_hInst,const Bomb bombs[], int n, const Board board[MAP_TILES][MAP_TILES])
 {
   
     HBITMAP hbitmapState1 = ResourceManager::GetBitmap(BitmapID::BombSet);
@@ -74,7 +159,6 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
     for (int i = 0; i < n; ++i) {
         int x = bombs[i].GetX();
         int y = bombs[i].GetY();
-        int reach = bombs[i].GetReach();
         int logicX = bombs[i].GetLogicalY();
         int logicY = bombs[i].GetLogicalX();
         // 설치 상태
@@ -104,8 +188,6 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
         }
         // 터진 상태
         else if (bombs[i].GetState() == 2) {
-            int cx = x / (MAP_TILES * 2);
-            int cy = y / (MAP_TILES * 2);
 
             // 본체
           
@@ -124,7 +206,6 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
            
             // 방향별로 퍼트림 (벽에 막히면 중단)
             //좌
-            bool is_collision = false;
             for (int j = 0;j < bombs[i].GetReachLeft();++j) {
                
                 
@@ -141,34 +222,10 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
                         RGB(255, 0, 255)
                     );
                 }
-                else if (board[logicY][nx].obstacle == 1) {
-                    if (!bombs[i].GetIsCollisionLeft()) {
-                        board[logicY][nx].obstacle = 0;
-                        bombs[i].SetReachLeft(j+1);
-                    }
-                    is_collision = true;
-                   
-                }
-                else if (board[logicY][nx].obstacle == 2) {
-					if (bombs[i].GetIsCollisionLeft() == false) {
-                        bombs[i].SetIsCollisionLeft(true);
-                        bombs[i].SetReachLeft(j + 1);
-						player->SetCurrentApple(player->GetCurrentApple() + 1); // 플레이어의 사과 수 증가
-					}
-					
-                 
-
-                }
                 SelectObject(memDC, oldBitmap);
-               
-                if (is_collision) {
-                    bombs[i].SetIsCollisionLeft(true);
-                    break;
-                }
                 
             }
             //우
-            is_collision = false;
             for (int j = 0;j < bombs[i].GetReachRight();++j) {
               //  int logicX = bombs[i].GetLogicalY();
               //  int logicY = bombs[i].GetLogicalX();
@@ -185,30 +242,9 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
                         RGB(255, 0, 255)
                     );
                 }
-                else if (board[logicY][nx].obstacle == 1) {
-                    if (!bombs[i].GetIsCollisionRight()) {
-                        board[logicY][nx].obstacle = 0;
-                        bombs[i].SetReachRight(j+1);
-                    }
-                    is_collision = true;
-
-                }
-                else if (board[logicY][nx].obstacle == 2) {
-                    if (bombs[i].GetIsCollisionRight() == false) {
-                        bombs[i].SetIsCollisionRight(true);
-                        bombs[i].SetReachRight(j + 1);
-                        player->SetCurrentApple(player->GetCurrentApple() + 1); // 플레이어의 사과 수 증가
-                    }
-                }
                 SelectObject(memDC, oldBitmap);
-                
-                if (is_collision) {
-                    bombs[i].SetIsCollisionRight(true);
-                    break;
-                }
             }
             //상
-            is_collision = false;
             for (int j = 0;j < bombs[i].GetReachUp();++j) {
                // int logicX = bombs[i].GetLogicalY();
               //  int logicY = bombs[i].GetLogicalX();
@@ -225,30 +261,9 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
                         RGB(255, 0, 255)
                     );
                 }
-                else if (board[ny][logicX].obstacle == 1) {
-                    if (!bombs[i].GetIsCollisionUp()) {
-                        board[ny][logicX].obstacle = 0;
-                        bombs[i].SetReachUp(j+1);
-                    }
-                    is_collision = true;
-                    
-                }
-                else if (board[ny][logicX].obstacle == 2) {
-                    if (bombs[i].GetIsCollisionUp() == false) {
-                        bombs[i].SetIsCollisionUp(true);
-                        bombs[i].SetReachUp(j + 1);
-                        player->SetCurrentApple(player->GetCurrentApple() + 1); // 플레이어의 사과 수 증가
-                    }
-                }
                 SelectObject(memDC, oldBitmap);
-             
-                if (is_collision) {
-                    bombs[i].SetIsCollisionUp(true);
-                    break;
-                }
             }
             //하
-            is_collision = false;
             for (int j = 0;j < bombs[i].GetReachDown();++j) {
              //   int logicX = bombs[i].GetLogicalY();
               //  int logicY = bombs[i].GetLogicalX();
@@ -265,27 +280,7 @@ void draw_Bomb(HDC hDC,HINSTANCE g_hInst,Bomb bombs[], int n, Board board[MAP_TI
                             RGB(255, 0, 255)
                         );
                     }
-                    else if(board[ny][logicX].obstacle == 1){
-                        if (!bombs[i].GetIsCollisionDown()) {
-                            board[ny][logicX].obstacle = 0;
-                            bombs[i].SetReachDown(j+1);
-                        }
-                        is_collision = true;
-                       
-                    }
-                    else if (board[ny][logicX].obstacle == 2) {
-                        if (bombs[i].GetIsCollisionDown() == false) {
-                            bombs[i].SetIsCollisionDown(true);
-                            bombs[i].SetReachDown(j + 1);
-                            player->SetCurrentApple(player->GetCurrentApple() + 1); // 플레이어의 사과 수 증가
-                        }
-                    }
                     SelectObject(memDC, oldBitmap);
-                   
-                    if (is_collision) {
-                        bombs[i].SetIsCollisionDown(true);
-                        break;
-                    }
                   
             }
             //출력끝
