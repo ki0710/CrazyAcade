@@ -19,6 +19,7 @@ class Bomb {
 	bool isCollisionDown;
 
 	bool is_collision_player;
+	bool is_collision_owner; // 설치자와 상대의 피격을 각각 한 번씩 처리한다.
 public:
 	void make_Bomb(Player player,Board board[MAP_TILES][MAP_TILES]);
 	bool tick_Bomb();
@@ -40,6 +41,7 @@ public:
 	bool GetIsCollisionUp() const { return isCollisionUp; }
 	bool GetIsCollisionDown() const { return isCollisionDown; }
 	bool GetIsCollisionPlayer() const { return is_collision_player; }
+	bool GetIsCollisionOwner() const { return is_collision_owner; }
 
 	void SetReachLeft(int value) { reachLeft = value; }
 	void SetReachRight(int value) { reachRight = value; }
@@ -50,6 +52,7 @@ public:
 	void SetIsCollisionUp(bool value) { isCollisionUp = value; }
 	void SetIsCollisionDown(bool value) { isCollisionDown = value; }
 	void SetIsCollisionPlayer(bool value) { is_collision_player = value; }
+	void SetIsCollisionOwner(bool value) { is_collision_owner = value; }
 
 	
 };

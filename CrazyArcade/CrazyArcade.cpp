@@ -148,7 +148,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (game_started && selected_stage) {
             if (wParam == VK_SPACE) {
                 if (selected_stage == 1) {
-                    if (p1.GetMaxBomb() - p1.GetCurrentApple() > p1bombs.size()) {
+                    if (p1.GetMaxBomb() > p1bombs.size()) {
                         Bomb newBomb;
                         newBomb.make_Bomb(p1, board);
 
@@ -171,7 +171,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam == VK_RETURN) {
 
                 if (selected_stage == 1) {
-                    if (p2.GetMaxBomb() - p2.GetCurrentApple() > p2bombs.size()) {
+                    if (p2.GetMaxBomb() > p2bombs.size()) {
                         Bomb newBomb;
                         newBomb.make_Bomb(p2, board);
 
@@ -352,6 +352,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             //플레이어 폭탄 충돌
             for (int i = 0;i < p1bombs.size();++i) {
+                // 자기 물풍선도 상대 물풍선과 같은 피해를 한 번만 적용한다.
+                if (p1bombs[i].GetState() == 2 &&
+                    !p1bombs[i].GetIsCollisionOwner() &&
+                    p1bombs[i].collision_bomb_player(p1bombs[i], p1)) {
+                    if (!p1.GetIsHit()) {
+                        PlaySound(NULL, NULL, NULL);
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Die.wav"), NULL, SND_ASYNC);
+                    }
+                    p1.SetIsHit(true);
+                    if (selected_stage == 1) {
+                        p1.SetCurrentApple(0);
+                    }
+                    else if (selected_stage == 2) {
+                        p1currentTime -= 2;
+                    }
+                    else if (selected_stage == 3) {
+                        p1CurrentHeart--;
+                    }
+                    if ((selected_stage == 2 && p1currentTime <= 0) ||
+                        (selected_stage == 3 && p1CurrentHeart <= 0)) {
+                        game_end = true;
+                        game_winner = 2;
+                        PlaySound(NULL, NULL, NULL);
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Win.wav"), NULL, SND_ASYNC);
+                    }
+                    p1bombs[i].SetIsCollisionOwner(true);
+                }
+
 				if (!p1bombs.data()[i].GetIsCollisionPlayer()&&p1bombs.data()[i].GetState() == 2) {
                     if (p1bombs.data()[i].collision_bomb_player(p1bombs.data()[i], p2)) {
                         if (p2.GetIsHit() == false) {
@@ -363,7 +391,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (selected_stage == 1) {
 							//스테이지 1 충돌 처리
                             if (p2.GetCurrentApple() > 0) {
-                                p1.SetCurrentApple(p1.GetCurrentApple() + p2.GetCurrentApple());
                                 p2.SetCurrentApple(0);
                             }
                             p1bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 2와 충돌한 경우
@@ -397,6 +424,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
           
             
                 for (int i = 0;i < p2bombs.size();++i) {
+                // 자기 물풍선도 상대 물풍선과 같은 피해를 한 번만 적용한다.
+                if (p2bombs[i].GetState() == 2 &&
+                    !p2bombs[i].GetIsCollisionOwner() &&
+                    p2bombs[i].collision_bomb_player(p2bombs[i], p2)) {
+                    if (!p2.GetIsHit()) {
+                        PlaySound(NULL, NULL, NULL);
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Die.wav"), NULL, SND_ASYNC);
+                    }
+                    p2.SetIsHit(true);
+                    if (selected_stage == 1) {
+                        p2.SetCurrentApple(0);
+                    }
+                    else if (selected_stage == 2) {
+                        p2currentTime -= 2;
+                    }
+                    else if (selected_stage == 3) {
+                        p2CurrentHeart--;
+                    }
+                    if ((selected_stage == 2 && p2currentTime <= 0) ||
+                        (selected_stage == 3 && p2CurrentHeart <= 0)) {
+                        game_end = true;
+                        game_winner = 1;
+                        PlaySound(NULL, NULL, NULL);
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Win.wav"), NULL, SND_ASYNC);
+                    }
+                    p2bombs[i].SetIsCollisionOwner(true);
+                }
+
                     if (!p2bombs.data()[i].GetIsCollisionPlayer() && p2bombs.data()[i].GetState() == 2) {
 						
                         if (p2bombs.data()[i].collision_bomb_player(p2bombs.data()[i], p1)) {
@@ -410,7 +465,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             if (selected_stage == 1) {
                                 //스테이지 1 충돌 처리
                                 if (p1.GetCurrentApple() > 0) {
-                                    p2.SetCurrentApple(p2.GetCurrentApple() + p1.GetCurrentApple());
                                     p1.SetCurrentApple(0);
                                 }
                                 p2bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 1과 충돌한 경우

@@ -16,6 +16,7 @@ void Bomb::make_Bomb(Player player, Board board[MAP_TILES][MAP_TILES])
     this->isCollisionUp = false;
     this->isCollisionDown = false;
     this->is_collision_player = false;
+    this->is_collision_owner = false;
     board[(int)player.GetY()][(int)player.GetX()].obstacle = 9;
 }
 
