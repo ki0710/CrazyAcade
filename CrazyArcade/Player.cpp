@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "BoardRender.h"
 #include "ResourceManager.h"
 Player::Player()
 {
@@ -145,8 +146,8 @@ int Player::collision_item(Player* player, Board board[MAP_TILES][MAP_TILES],int
 
 int Player::collision_train(Player* player, Train& train, Board board[MAP_TILES][MAP_TILES], int& Pcurrenttime)
 {
-	int px = board[player->GetY()][player->GetX()].pos.x; // 플레이어의 x 좌표
-	int py = board[player->GetY()][player->GetX()].pos.y; // 플레이어의 y 좌표
+	int px = GetBoardScreenPosition(player->GetX(), player->GetY()).x; // 플레이어의 x 좌표
+	int py = GetBoardScreenPosition(player->GetX(), player->GetY()).y; // 플레이어의 y 좌표
 	// 플레이어가 기차와 충돌했는지 확인
     if (train.is_spawned) {
         if (px >= train.Pos.left && px <= train.Pos.right) {
@@ -254,14 +255,14 @@ void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILE
                 HBITMAP treebit = ResourceManager::GetBitmap(BitmapID::ForestTree);
                 HDC treeDC = CreateCompatibleDC(hdc);
                 HBITMAP oldTreeBitmap = (HBITMAP)SelectObject(treeDC, treebit);
-                TransparentBlt(hdc, board[1][8].pos.x - 10, board[1][9].pos.y - 3 * MAP_TILES, 7 * MAP_TILES, 6 * MAP_TILES, treeDC, 0, 0, 100, 80, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(8, 1).x - 10, GetBoardScreenPosition(9, 1).y - 3 * MAP_TILES, 7 * MAP_TILES, 6 * MAP_TILES, treeDC, 0, 0, 100, 80, RGB(255, 0, 255));
                 SelectObject(treeDC, oldTreeBitmap);
 
                 DeleteDC(treeDC);
             }
             if (board[i][j].item >= 1&&board[i][j].obstacle==0) {
                 oldItemBitmap = (HBITMAP)SelectObject(itemDC, itemBitmap[board[i][j].item-1]);
-				TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
+				TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
 				SelectObject(itemDC, oldItemBitmap);
             }
             if (j == p1->GetX() && i == p1->GetY()) {
@@ -278,7 +279,7 @@ void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILE
             if (board[i][j].obstacle == 1) {
 
                 (HBITMAP)SelectObject(obstacleDC, obstacleBitmap[board[i][j].obstacle_tpye - 1]);
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES - 5, board[i][j].pos.y - MAP_TILES - 5, 2 * MAP_TILES + 10, 2 * MAP_TILES + 10, obstacleDC, 0, 0, 68, 67, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES - 5, GetBoardScreenPosition(j, i).y - MAP_TILES - 5, 2 * MAP_TILES + 10, 2 * MAP_TILES + 10, obstacleDC, 0, 0, 68, 67, RGB(255, 0, 255));
                 SelectObject(obstacleDC, oldObstacleBitmap);
             }
             switch (board[i][j].obstacle) {
@@ -287,7 +288,7 @@ void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILE
                 HBITMAP appleboxBitmap = ResourceManager::GetBitmap(BitmapID::ForestAppleBox);
                 HDC appleboxDC = CreateCompatibleDC(hdc);
                 HBITMAP oldAppleboxBitmap = (HBITMAP)SelectObject(appleboxDC, appleboxBitmap);
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES - 10, board[i][j].pos.y - MAP_TILES - 30, 2 * MAP_TILES + 20, 2 * MAP_TILES + 30, appleboxDC, 0, 0, 64, 64, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES - 10, GetBoardScreenPosition(j, i).y - MAP_TILES - 30, 2 * MAP_TILES + 20, 2 * MAP_TILES + 30, appleboxDC, 0, 0, 64, 64, RGB(255, 0, 255));
                 SelectObject(appleboxDC, oldAppleboxBitmap);
                 DeleteDC(appleboxDC);
             }
@@ -366,10 +367,10 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
         for (int j = 0; j < MAP_TILES; ++j) {
             if (board[i][j].obstacle==1) {
                 if (board[i][j].obstacle_tpye == 1) {
-					TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 90, 40, 112, obstacleDC, 560, 0, 40, 112, RGB(255, 0, 255));
+					TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 90, 40, 112, obstacleDC, 560, 0, 40, 112, RGB(255, 0, 255));
 				}
 				else if (board[i][j].obstacle_tpye == 2) {
-					TransparentBlt(hdc, board[i][j].pos.x - 25, board[i][j].pos.y - 25, 50, 50, TrashboxDC, 0, 0, 64, 64, RGB(255, 0, 255));
+					TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - 25, GetBoardScreenPosition(j, i).y - 25, 50, 50, TrashboxDC, 0, 0, 64, 64, RGB(255, 0, 255));
 				}
                 else if (board[i][j].obstacle_tpye == 3) {
 
@@ -378,35 +379,35 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
             }
             else if (board[i][j].obstacle == 3) {
 				
-				TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 120, 80,140, building1DC, 0, 0, 68, 149, RGB(255, 0, 255));
+				TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 120, 80,140, building1DC, 0, 0, 68, 149, RGB(255, 0, 255));
 				
             }
             else if (board[i][j].obstacle == 4) {
                
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 140, 80, 160, building2DC, 0, 0, 68, 166, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 140, 80, 160, building2DC, 0, 0, 68, 166, RGB(255, 0, 255));
                 
             }
             else if (board[i][j].obstacle == 5) {
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 120, 80, 140, building3DC, 0, 0, 68, 109, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 120, 80, 140, building3DC, 0, 0, 68, 109, RGB(255, 0, 255));
 
             }
             else if (board[i][j].obstacle == 6) {
                 if (train.is_spawned) {
                     SelectObject(BlinkerDC, BlinkerBitmap);
-                    TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 90, 40, 110, BlinkerDC, 0, 0, 40, 110, RGB(255, 0, 255));
+                    TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 90, 40, 110, BlinkerDC, 0, 0, 40, 110, RGB(255, 0, 255));
                 }
                 else {
                     SelectObject(BlinkerDC, BlinkerBitmapON);
-                    TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - 90, 40, 110, BlinkerDC, 0, 0, 40, 110, RGB(255, 0, 255));
+                    TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - 90, 40, 110, BlinkerDC, 0, 0, 40, 110, RGB(255, 0, 255));
                 }
             }
             if(i==10&&j==0) draw_train(hdc, train);
             if (board[i][j].item >= 1 && board[i][j].obstacle == 0) {
                 oldItemBitmap = (HBITMAP)SelectObject(itemDC, itemBitmap[board[i][j].item - 1]);
 				if (board[i][j].item == 4) // 시계 아이템
-					TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 40, 46, RGB(255, 0, 255));
+					TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 40, 46, RGB(255, 0, 255));
 				else
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
                 SelectObject(itemDC, oldItemBitmap);
             }
             // 플레이어 1을 그리기
@@ -482,16 +483,16 @@ void DrawGrid_Ice(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES],
     HDC itemDC = CreateCompatibleDC(hdc);
     HBITMAP oldItemBitmap = (HBITMAP)SelectObject(itemDC, itemBitmap[0]);
     //얼음집
-    TransparentBlt(hdc, board[1][5].pos.x - MAP_TILES, board[2][5].pos.y - MAP_TILES, 120, 120, obstacleDC, 160, 0, 120, 120, RGB(255, 0, 255));
+    TransparentBlt(hdc, GetBoardScreenPosition(5, 1).x - MAP_TILES, GetBoardScreenPosition(5, 2).y - MAP_TILES, 120, 120, obstacleDC, 160, 0, 120, 120, RGB(255, 0, 255));
     //얼음집
-    TransparentBlt(hdc, board[1][12].pos.x - MAP_TILES, board[2][5].pos.y - MAP_TILES, 120, 120, obstacleDC, 160, 0, 120, 120, RGB(255, 0, 255));
+    TransparentBlt(hdc, GetBoardScreenPosition(12, 1).x - MAP_TILES, GetBoardScreenPosition(5, 2).y - MAP_TILES, 120, 120, obstacleDC, 160, 0, 120, 120, RGB(255, 0, 255));
 
     for (int i = 0; i < MAP_TILES; ++i) {
         for (int j = 0; j < MAP_TILES; ++j) {
            
             if (board[i][j].item >= 1 && board[i][j].obstacle == 0) {
                 oldItemBitmap = (HBITMAP)SelectObject(itemDC, itemBitmap[board[i][j].item - 1]);
-                TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
+                TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
                 SelectObject(itemDC, oldItemBitmap);
             }
             if (j == p1->GetX() && i == p1->GetY()) {
@@ -505,12 +506,12 @@ void DrawGrid_Ice(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES],
             if (board[i][j].obstacle == 1) {
                 if (board[i][j].obstacle_tpye == 0) {
                     (HBITMAP)SelectObject(IceBlockDC, IceBlockBitmap[board[i][j].obstacle_tpye]);
-                    TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES, board[i][j].pos.y - MAP_TILES-25, 2 * MAP_TILES, 2 * MAP_TILES + 30, IceBlockDC, 0, 0, 42, 54, RGB(255, 0, 255));
+                    TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES-25, 2 * MAP_TILES, 2 * MAP_TILES + 30, IceBlockDC, 0, 0, 42, 54, RGB(255, 0, 255));
                     SelectObject(IceBlockDC, oldIceBlockBitmap);
                 }
                 else  if (board[i][j].obstacle_tpye == 1) {
                     (HBITMAP)SelectObject(IceBlockDC, IceBlockBitmap[board[i][j].obstacle_tpye]);
-                    TransparentBlt(hdc, board[i][j].pos.x - MAP_TILES , board[i][j].pos.y - MAP_TILES -15, 2 * MAP_TILES , 2 * MAP_TILES + 20, IceBlockDC, 0, 0, 42, 48, RGB(255, 0, 255));
+                    TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES , GetBoardScreenPosition(j, i).y - MAP_TILES -15, 2 * MAP_TILES , 2 * MAP_TILES + 20, IceBlockDC, 0, 0, 42, 48, RGB(255, 0, 255));
                     SelectObject(IceBlockDC, oldIceBlockBitmap);
                 }
                 

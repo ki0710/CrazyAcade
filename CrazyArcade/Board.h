@@ -1,11 +1,10 @@
 #pragma once
 
-#include"pch.h"
+// 서버에서 사용할 맵 상태에는 화면 좌표와 Windows 자료형을 넣지 않는다.
 
 
 
 typedef struct Board {
-	POINT pos;
 	int obstacle;
 	int obstacle_tpye;
 	int tile;
@@ -16,7 +15,3 @@ typedef struct Board {
 void init_board_Forest(Board board[MAP_TILES][MAP_TILES]);
 void init_board_City(Board board[MAP_TILES][MAP_TILES]);
 void init_board_Ice(Board board[MAP_TILES][MAP_TILES]);
-void draw_tile_forest(HDC hdc);
-void draw_tile_city(HDC hdc);
-void draw_tile_ice(HDC hdc);
-void DrawDarkOverlay(HDC hDC, int width, int height);

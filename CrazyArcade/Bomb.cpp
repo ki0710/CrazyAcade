@@ -1,10 +1,11 @@
 #include"Bomb.h"
+#include "BoardRender.h"
 #include "ResourceManager.h"
 void Bomb::make_Bomb(Player player, Board board[MAP_TILES][MAP_TILES])
 {
 	
-	this->pos.x = board[(int)player.GetY()][(int)player.GetX()].pos.x;
-	this->pos.y = board[(int)player.GetY()][(int)player.GetX()].pos.y;
+	this->pos.x = GetBoardScreenPosition((int)player.GetX(), (int)player.GetY()).x;
+	this->pos.y = GetBoardScreenPosition((int)player.GetX(), (int)player.GetY()).y;
     this->logicalPos.x = (int)player.GetY();
     this->logicalPos.y = (int)player.GetX();
 	this->reach = player.GetBomb_distance();

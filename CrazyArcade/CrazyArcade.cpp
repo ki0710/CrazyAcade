@@ -1,4 +1,5 @@
 ﻿#include"pch.h"
+#include "BoardRender.h"
 #include"Train.h"
 #include"Bomb.h"
 #include"ResourceManager.h"

@@ -1,4 +1,5 @@
 #include"Train.h"
+#include "BoardRender.h"
 #include"ResourceManager.h"
 
 void init_train(Train& train) {
@@ -90,7 +91,7 @@ void move_item(Train& train, Board board[MAP_TILES][MAP_TILES])
 	for (int i = 0;i < 6;++i) {
 		if (train.item[i].is_active) {
 			POINT& cur = train.item[i].pos;
-			POINT target = board[train.item[i].on_board_pos.y][train.item[i].on_board_pos.x].pos;
+			POINT target = GetBoardScreenPosition(train.item[i].on_board_pos.x, train.item[i].on_board_pos.y);
 
 			// 방향 벡터 계산
 			int dx = target.x - cur.x;
