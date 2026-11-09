@@ -5,13 +5,12 @@
 
 
 #include"Board.h"
-static bool keyStates[256] = { 0 };
 class Player {
-    int x, y;
-    int destX, destY;
+    int x, y;           // Last completed map cell: x=column, y=row.
+    int destX, destY;   // Target cell of the current tile movement.
     int dir;
 	float speed;
-    float px, py;
+    float px, py;       // Fractional cell coordinates, not screen pixels.
     int bomb_distance;
     int maxBomb;
     int currrentApple;
@@ -83,8 +82,11 @@ public:
 };
 
    //이동 관리 함수
-void HandlePlayerMovement(Player& player, const bool* keyStates, int upKey, int downKey, int leftKey, int rightKey, Board board[MAP_TILES][MAP_TILES]);
-void UpdatePlayerPosition(Player& player, float speed);
+constexpr int DIR_NONE = -1;
+bool CanMoveTo(int x, int y, const Board board[MAP_TILES][MAP_TILES]);
+void HandlePlayerMovement(Player& player, int direction, const Board board[MAP_TILES][MAP_TILES]);
+// moveAmount is the movement in cells per update; the caller keeps speed / 8.0f.
+void UpdatePlayerPosition(Player& player, float moveAmount);
 
 //맵 그리기 플레이어 연동
 void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2);

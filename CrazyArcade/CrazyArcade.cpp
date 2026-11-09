@@ -11,6 +11,20 @@
 HINSTANCE g_hInst;
 LPCTSTR lpszClass = L"Window Class Name";
 LPCTSTR lpszWindowName = L"CrazyArcade";
+// Windows input stays local; movement code consumes only the selected direction.
+static int GetMovementDirection(const bool* keys, int upKey, int downKey, int leftKey, int rightKey) {
+    if (keys[upKey]) return DIR_UP;
+    if (keys[downKey]) return DIR_DOWN;
+    if (keys[leftKey]) return DIR_LEFT;
+    if (keys[rightKey]) return DIR_RIGHT;
+    return DIR_NONE;
+}
+
+static bool IsMovementKey(WPARAM key) {
+    return key == 'W' || key == 'S' || key == 'A' || key == 'D' ||
+        key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
+}
+
 void DrawOutlinedText(HDC hdc, int x, int y, const wchar_t* text) {
     // 폰트 생성 (크고 두꺼운 글씨)
     HFONT hFont = CreateFont(
@@ -105,6 +119,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     PAINTSTRUCT ps;
     HDC hdc;
     static Player p1, p2;
+    static bool keyStates[256] = { 0 };
     static Board board[MAP_TILES][MAP_TILES];
     static int selected_stage = 0;
     static std::vector<Bomb> p1bombs;
@@ -221,7 +236,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
 	
-        InvalidateRect(hWnd, NULL, FALSE);
+        // The game timer already redraws movement; key autorepeat needs no extra paint.
+        // Keep the existing menu, bomb and apple-box key handling above.
+        if (selected_stage == 0 || !IsMovementKey(wParam))
+            InvalidateRect(hWnd, NULL, FALSE);
         break;
     case WM_KEYUP:
         if (wParam < 256) keyStates[wParam] = false;
@@ -231,10 +249,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case 1: {
             
             if (selected_stage) {
-                HandlePlayerMovement(p1, keyStates, 'W', 'S', 'A', 'D', board);
+                int p1Direction = GetMovementDirection(keyStates, 'W', 'S', 'A', 'D');
+                HandlePlayerMovement(p1, p1Direction, board);
                 UpdatePlayerPosition(p1, p1.Getspeed()/8.0f);
 
-                HandlePlayerMovement(p2, keyStates, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, board);
+                int p2Direction = GetMovementDirection(keyStates, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT);
+                HandlePlayerMovement(p2, p2Direction, board);
                 UpdatePlayerPosition(p2, p2.Getspeed()/8.0f);
 
                 int temp = -1;

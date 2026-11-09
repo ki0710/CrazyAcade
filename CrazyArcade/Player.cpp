@@ -164,47 +164,41 @@ int Player::collision_train(Player* player, Train& train, Board board[MAP_TILES]
 }
 
 
-void HandlePlayerMovement(Player& player, const bool* keyStates, int upKey, int downKey, int leftKey, int rightKey, Board board[MAP_TILES][MAP_TILES]) {
-    if (player.IsStopped()) {
-        int x = player.GetX();
-        int y = player.GetY();
+bool CanMoveTo(int x, int y, const Board board[MAP_TILES][MAP_TILES]) {
+    return x >= 0 && x < MAP_TILES && y >= 0 && y < MAP_TILES &&
+        board[y][x].obstacle == 0;
+}
 
-        if (keyStates[upKey]) {
-            if (y > 0 && board[y - 1][x].obstacle == 0) {
-                player.SetDir(DIR_UP);
-                player.SetDestY(y - 1);
-            }
-        }
-        else if (keyStates[downKey]) {
-            if (y < MAP_TILES - 1 && board[y + 1][x].obstacle == 0) {
-                player.SetDir(DIR_DOWN);
-                player.SetDestY(y + 1);
-            }
-        }
-        else if (keyStates[leftKey]) {
-            if (x > 0 && board[y][x - 1].obstacle == 0) {
-                player.SetDir(DIR_LEFT);
-                player.SetDestX(x - 1);
-            }
-        }
-        else if (keyStates[rightKey]) {
-            if (x < MAP_TILES - 1 && board[y][x + 1].obstacle == 0) {
-                player.SetDir(DIR_RIGHT);
-                player.SetDestX(x + 1);
-            }
-        }
+void HandlePlayerMovement(Player& player, int direction, const Board board[MAP_TILES][MAP_TILES]) {
+    if (!player.IsStopped()) return;
+
+    int destX = player.GetX();
+    int destY = player.GetY();
+    switch (direction) {
+    case DIR_UP:    --destY; break;
+    case DIR_DOWN:  ++destY; break;
+    case DIR_LEFT:  --destX; break;
+    case DIR_RIGHT: ++destX; break;
+    default: return; // No input, or an unsupported direction.
+    }
+
+    // Check only the destination: a player may leave a bomb on their current cell.
+    if (CanMoveTo(destX, destY, board)) {
+        player.SetDir(direction);
+        player.SetDestX(destX);
+        player.SetDestY(destY);
     }
 }
 
-void UpdatePlayerPosition(Player& player, float speed) {
+void UpdatePlayerPosition(Player& player, float moveAmount) {
     if (player.IsMoving()) {
         float dx = player.GetDestX() - player.GetPx();
         float dy = player.GetDestY() - player.GetPy();
 
-        if (fabs(dx) > speed) player.SetPx(player.GetPx() + (dx > 0 ? speed : -speed));
+        if (fabs(dx) > moveAmount) player.SetPx(player.GetPx() + (dx > 0 ? moveAmount : -moveAmount));
         else player.SetPx(player.GetDestX());
 
-        if (fabs(dy) > speed) player.SetPy(player.GetPy() + (dy > 0 ? speed : -speed));
+        if (fabs(dy) > moveAmount) player.SetPy(player.GetPy() + (dy > 0 ? moveAmount : -moveAmount));
         else player.SetPy(player.GetDestY());
 
         if (!player.IsMoving()) player.SnapToDest();
