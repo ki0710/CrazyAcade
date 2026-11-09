@@ -1,265 +1,194 @@
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <winsock2.h>
+#include "../Common/Session.h"
+#include "../Common/Protocol.h"
+#include "../Common/ConsoleStop.h"
 #include <ws2tcpip.h>
-#include <Windows.h>
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <memory>
+#include <vector>
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define SERVERPORT 9000
-#define BUFSIZE 4096
-#define MAX_PLAYERS 2
-
-// 콘솔 출력 동기화를 위한 임계 영역
-CRITICAL_SECTION cs;
-
-// 클라이언트 정보를 저장하는 구조체
-struct ClientInfo
-{
-    SOCKET sock;
-    int number;
+namespace {
+using namespace network;
+using Clock = std::chrono::steady_clock;
+constexpr unsigned short kPort = 9000;
+struct Client : Session {
+    explicit Client(SOCKET socket) : Session(socket) {}
+    int playerId = 0;
+    bool dead = false;
+    bool closing = false;
+    bool writeShutdown = false;
+    bool readClosed = false;
+    Clock::time_point deadline = Clock::now() + std::chrono::seconds(5);
 };
 
-// 콘솔 메시지 출력 함수
-void PrintMessage(int number, const char* message)
-{
-    EnterCriticalSection(&cs);
+class Room {
+public:
+    std::vector<std::unique_ptr<Client>> clients;
+    Client* slots[2] = {nullptr, nullptr};
 
-    printf("[Player %d] %s\n", number, message);
-    fflush(stdout);
-
-    LeaveCriticalSection(&cs);
+    void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload) {
+        if (!client.dead && !client.closing && !client.Queue(type, payload)) client.dead = true;
+    }
+    void Reject(Client& client, ErrorCode error) {
+        Queue(client, PacketType::SC_ERROR, ErrorPayload(error));
+        client.closing = true;
+        client.deadline = Clock::now() + std::chrono::seconds(2);
+        std::printf("SC_ERROR: %s\n", ErrorText(error));
+    }
+    void Broadcast(PacketType type, const std::vector<std::uint8_t>& payload) {
+        for (auto* slot : slots) if (slot) Queue(*slot, type, payload);
+    }
+    void BroadcastState() {
+        const auto count = static_cast<std::uint8_t>((slots[0] != nullptr) + (slots[1] != nullptr));
+        Broadcast(PacketType::SC_ROOM_STATE, {count});
+        std::printf("SC_ROOM_STATE: count=%u\n", unsigned(count));
+    }
+    void Handle(Client& client, const Packet& packet) {
+        if (client.playerId != 0 || packet.header.matchId != 0 ||
+            packet.header.packetType != PacketType::CS_HELLO || packet.payload.size() != 4) {
+            Reject(client, ErrorCode::BadRequest);
+            return;
+        }
+        if (PayloadWord(packet.payload.data()) != kGameVersion ||
+            PayloadWord(packet.payload.data() + 2) != kProtocolVersion) {
+            Reject(client, ErrorCode::VersionMismatch);
+            return;
+        }
+        int index = !slots[0] ? 0 : !slots[1] ? 1 : -1;
+        if (index < 0) { Reject(client, ErrorCode::RoomFull); return; }
+        client.playerId = index + 1;
+        slots[index] = &client;
+        Queue(client, PacketType::SC_WELCOME, {static_cast<std::uint8_t>(client.playerId)});
+        std::printf("SC_WELCOME: Player ID=%d\n", client.playerId);
+        BroadcastState();
+    }
+    void Read(Client& client) {
+        const auto result = ReceiveOnce(client.socket, client.received);
+        if (result.status == IoStatus::WouldBlock) return;
+        if (result.status == IoStatus::InvalidData) { Reject(client, ErrorCode::BadRequest); return; }
+        if (result.status != IoStatus::Progress) { client.dead = true; return; }
+        Packet packet;
+        while (!client.closing && !client.dead) {
+            const auto extracted = client.received.TryExtract(packet);
+            if (extracted == ExtractResult::NeedMoreData) break;
+            if (extracted == ExtractResult::InvalidData) { Reject(client, ErrorCode::BadRequest); break; }
+            Handle(client, packet);
+        }
+    }
+    void RemoveDead() {
+        // Repeat because a failed notification may mark another peer dead.
+        bool removed;
+        do {
+            removed = false;
+            for (auto& client : clients) {
+                if (!client->dead || client->playerId == 0) continue;
+                const auto id = static_cast<std::uint8_t>(client->playerId);
+                slots[id - 1] = nullptr;
+                client->playerId = 0;
+                removed = true;
+                std::printf("Player %u disconnected; slot released\n", unsigned(id));
+                Broadcast(PacketType::SC_PEER_LEFT, {id});
+                BroadcastState();
+            }
+        } while (removed);
+        clients.erase(std::remove_if(clients.begin(), clients.end(),
+            [](const std::unique_ptr<Client>& client) { return client->dead; }), clients.end());
+    }
+};
 }
 
-// 클라이언트별 데이터 수신 스레드
-DWORD WINAPI ProcessClient(LPVOID arg)
-{
-    ClientInfo* info = (ClientInfo*)arg;
-
-    SOCKET client_sock = info->sock;
-    int number = info->number;
-
-    // 전달받은 정보를 복사했으므로 메모리 해제
-    delete info;
-
-    // 클라이언트 IP 주소 확인
-    struct sockaddr_in clientaddr;
-    int addrlen = sizeof(clientaddr);
-    char ip[INET_ADDRSTRLEN] = "";
-
-    if (getpeername(
-        client_sock,
-        (struct sockaddr*)&clientaddr,
-        &addrlen
-    ) == 0)
-    {
-        inet_ntop(
-            AF_INET,
-            &clientaddr.sin_addr,
-            ip,
-            sizeof(ip)
-        );
-    }
-
-    EnterCriticalSection(&cs);
-    printf("[Player %d] 접속 성공! IP: %s\n",
-        number, ip);
-    LeaveCriticalSection(&cs);
-
-    // 클라이언트와 연결 유지
-    char buf[BUFSIZE];
-
-    while (1)
-    {
-        int retval = recv(
-            client_sock,
-            buf,
-            BUFSIZE,
-            0
-        );
-
-        if (retval == 0)
-        {
-            // 클라이언트가 정상적으로 연결 종료
-            PrintMessage(number, "접속 종료");
-            break;
-        }
-
-        if (retval == SOCKET_ERROR)
-        {
-            // 데이터 수신 오류
-            PrintMessage(number, "수신 오류 발생");
-            break;
-        }
-
-        // 수신한 데이터 확인
-        EnterCriticalSection(&cs);
-        printf("[Player %d] %d바이트 수신\n",
-            number, retval);
-        LeaveCriticalSection(&cs);
-
-        // 실제 게임 패킷 처리는 추후 구현
-    }
-
-    // 클라이언트 소켓 종료
-    closesocket(client_sock);
-
-    return 0;
-}
-
-int main()
-{
-    int retval;
-
-    // 1. 윈속 초기화
+int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0);
     WSADATA wsa;
-
-    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
-        return 1;
-
-    // 2. TCP 서버 소켓 생성
-    SOCKET listen_sock = socket(
-        AF_INET,
-        SOCK_STREAM,
-        0
-    );
-
-    if (listen_sock == INVALID_SOCKET)
-    {
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
+    SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == INVALID_SOCKET) { WSACleanup(); return 1; }
+    sockaddr_in address = {};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = htons(kPort);
+    if (bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR ||
+        listen(listener, SOMAXCONN) == SOCKET_ERROR || !SetNonblocking(listener)) {
+        std::printf("Server setup failed: %d\n", WSAGetLastError());
+        closesocket(listener);
         WSACleanup();
         return 1;
     }
-
-    // 3. 서버 주소 설정
-    struct sockaddr_in serveraddr;
-    memset(&serveraddr, 0, sizeof(serveraddr));
-
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serveraddr.sin_port = htons(SERVERPORT);
-
-    // 4. IP 주소와 포트 번호 연결
-    retval = bind(
-        listen_sock,
-        (struct sockaddr*)&serveraddr,
-        sizeof(serveraddr)
-    );
-
-    if (retval == SOCKET_ERROR)
+    SetConsoleCtrlHandler(StopHandler, TRUE);
+    std::printf("Server listening on port %u. Enter or Ctrl+C to stop.\n", unsigned(kPort));
+    int exitCode = 0;
     {
-        printf("bind() 실패: %d\n", WSAGetLastError());
-        closesocket(listen_sock);
-        WSACleanup();
-        return 1;
-    }
-
-    // 5. 클라이언트 접속 대기
-    retval = listen(listen_sock, SOMAXCONN);
-
-    if (retval == SOCKET_ERROR)
-    {
-        printf("listen() 실패: %d\n", WSAGetLastError());
-        closesocket(listen_sock);
-        WSACleanup();
-        return 1;
-    }
-
-    // 6. 임계 영역 초기화
-    InitializeCriticalSection(&cs);
-
-    printf("================================\n");
-    printf("       Network Game Server      \n");
-    printf("================================\n");
-    printf("서버 포트: %d\n", SERVERPORT);
-    printf("최대 플레이어: %d명\n", MAX_PLAYERS);
-    printf("클라이언트 접속 대기 중...\n\n");
-
-    // 클라이언트별 스레드 핸들
-    HANDLE hThread[MAX_PLAYERS] = { NULL };
-
-    int count = 0;
-
-    // 7. 클라이언트 2명 접속 처리
-    while (count < MAX_PLAYERS)
-    {
-        struct sockaddr_in clientaddr;
-        int addrlen = sizeof(clientaddr);
-
-        SOCKET client_sock = accept(
-            listen_sock,
-            (struct sockaddr*)&clientaddr,
-            &addrlen
-        );
-
-        if (client_sock == INVALID_SOCKET)
-        {
-            printf("accept() 실패\n");
-            break;
+        Room room;
+        while (!StopRequested()) {
+            fd_set readable, writable;
+            FD_ZERO(&readable);
+            FD_ZERO(&writable);
+            // Bound unapproved/rejected sockets as well as the two player slots.
+            if (room.clients.size() < 16) FD_SET(listener, &readable);
+            for (const auto& client : room.clients) {
+                if (!client->readClosed) FD_SET(client->socket, &readable);
+                if (client->WantsWrite()) FD_SET(client->socket, &writable);
+            }
+            timeval timeout = {0, 100000};
+            if (select(0, &readable, &writable, nullptr, &timeout) == SOCKET_ERROR) {
+                std::printf("select failed: %d\n", WSAGetLastError());
+                exitCode = 1;
+                break;
+            }
+            // Read existing peers and free departed slots before accepting/approving new ones.
+            for (auto& client : room.clients) {
+                if (FD_ISSET(client->socket, &readable)) {
+                    if (!client->closing) room.Read(*client);
+                    else {
+                        // Drain requests already in flight during rejection. Closing a
+                        // socket with unread data can reset TCP and lose SC_ERROR.
+                        client->received.Reset();
+                        const auto result = ReceiveOnce(client->socket, client->received);
+                        client->received.Reset();
+                        if (result.status == IoStatus::Closed) client->readClosed = true;
+                        else if (result.status != IoStatus::Progress && result.status != IoStatus::WouldBlock)
+                            client->dead = true;
+                    }
+                }
+                if (!client->dead && FD_ISSET(client->socket, &writable) && !client->Flush())
+                    client->dead = true;
+                if (!client->closing && client->playerId == 0 && Clock::now() >= client->deadline)
+                    room.Reject(*client, ErrorCode::Timeout);
+                if (client->closing && !client->dead) {
+                    if (!client->WantsWrite() && !client->writeShutdown) {
+                        shutdown(client->socket, SD_SEND);
+                        client->writeShutdown = true;
+                    }
+                    if (client->writeShutdown && client->readClosed) client->dead = true;
+                    if (Clock::now() >= client->deadline) client->dead = true;
+                }
+            }
+            room.RemoveDead();
+            if (FD_ISSET(listener, &readable)) {
+                sockaddr_in peer = {};
+                int size = sizeof(peer);
+                SOCKET socket = accept(listener, reinterpret_cast<sockaddr*>(&peer), &size);
+                if (socket != INVALID_SOCKET) {
+                    if (!SetNonblocking(socket)) closesocket(socket);
+                    else {
+                        std::unique_ptr<Client> client(new Client(socket));
+                        if (room.slots[0] && room.slots[1]) room.Reject(*client, ErrorCode::RoomFull);
+                        room.clients.push_back(std::move(client));
+                    }
+                } else if (WSAGetLastError() != WSAEWOULDBLOCK) {
+                    std::printf("accept failed: %d\n", WSAGetLastError());
+                }
+            }
         }
-
-        // 플레이어 정보 생성
-        ClientInfo* info = new ClientInfo;
-
-        info->sock = client_sock;
-        info->number = count + 1;
-
-        // 8. 클라이언트별 스레드 생성
-        HANDLE thread = CreateThread(
-            NULL,
-            0,
-            ProcessClient,
-            info,
-            0,
-            NULL
-        );
-
-        if (thread == NULL)
-        {
-            printf("스레드 생성 실패\n");
-            closesocket(client_sock);
-            delete info;
-            break;
-        }
-
-        hThread[count] = thread;
-        count++;
+        for (auto& client : room.clients) shutdown(client->socket, SD_BOTH);
+        // All Session destructors close sockets before WSACleanup.
     }
-
-    if (count == MAX_PLAYERS)
-    {
-        printf("\n플레이어 2명 접속 완료!\n");
-    }
-
-    // 9. 모든 클라이언트 스레드 종료 대기
-    if (count > 0)
-    {
-        WaitForMultipleObjects(
-            count,
-            hThread,
-            TRUE,
-            INFINITE
-        );
-    }
-
-    // 10. 스레드 핸들 정리
-    for (int i = 0; i < count; i++)
-    {
-        CloseHandle(hThread[i]);
-    }
-
-    // 11. 서버 소켓 종료
-    closesocket(listen_sock);
-
-    // 12. 임계 영역 제거
-    DeleteCriticalSection(&cs);
-
-    // 13. 윈속 종료
+    closesocket(listener);
+    SetConsoleCtrlHandler(StopHandler, FALSE);
     WSACleanup();
-
-    printf("\n모든 클라이언트 연결 종료\n");
-    system("pause");
-
-    return 0;
+    std::printf("Server stopped.\n");
+    return exitCode;
 }
