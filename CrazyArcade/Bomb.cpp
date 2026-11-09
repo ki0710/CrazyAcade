@@ -38,27 +38,32 @@ bool Bomb::tick_Bomb()
 
 int Bomb::collision_bomb_player(Bomb bomb, Player player)
 {
-    int bx = bomb.GetLogicalX();
-    int by = bomb.GetLogicalY();
-    int px = player.GetY();
-    int py = player.GetX();
+    // Bomb stores row in logicalPos.x and column in logicalPos.y.
+    int bombRow = bomb.GetLogicalX();
+    int bombCol = bomb.GetLogicalY();
+    int playerRow = player.GetY();
+    int playerCol = player.GetX();
 
-    // 폭탄 중심에 있는 경우
-    if (bx == px && by == py) {
+    // The center tile is always part of the explosion.
+    if (bombRow == playerRow && bombCol == playerCol) {
         return 1;
     }
 
-    // 수평 방향 사거리 판정 (같은 Y축, X범위 내)
-    if (by == py && px >= bx - bomb.GetReachLeft() && px <= bx + bomb.GetReachRight()) {
+    // Left/right extend along columns within the same row.
+    if (playerRow == bombRow &&
+        playerCol >= bombCol - bomb.GetReachLeft() &&
+        playerCol <= bombCol + bomb.GetReachRight()) {
         return 1;
     }
 
-    // 수직 방향 사거리 판정 (같은 X축, Y범위 내)
-    if (bx == px && py >= by - bomb.GetReachUp() && py <= by + bomb.GetReachDown()) {
+    // Up/down extend along rows within the same column.
+    if (playerCol == bombCol &&
+        playerRow >= bombRow - bomb.GetReachUp() &&
+        playerRow <= bombRow + bomb.GetReachDown()) {
         return 1;
     }
 
-    return 0; // 충돌 없음
+    return 0;
 }
 
 
