@@ -79,7 +79,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
         if (nx < 0) break;
         if (board[logicY][nx].obstacle == 1) {
             if (!bomb.GetIsCollisionLeft()) {
-                board[logicY][nx].obstacle = 0;
+                BreakBoardObstacle(board[logicY][nx]);
                 bomb.SetReachLeft(j + 1);
             }
             bomb.SetIsCollisionLeft(true);
@@ -98,7 +98,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
         if (nx >= MAP_TILES) break;
         if (board[logicY][nx].obstacle == 1) {
             if (!bomb.GetIsCollisionRight()) {
-                board[logicY][nx].obstacle = 0;
+                BreakBoardObstacle(board[logicY][nx]);
                 bomb.SetReachRight(j + 1);
             }
             bomb.SetIsCollisionRight(true);
@@ -117,7 +117,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
         if (ny < 0) break;
         if (board[ny][logicX].obstacle == 1) {
             if (!bomb.GetIsCollisionUp()) {
-                board[ny][logicX].obstacle = 0;
+                BreakBoardObstacle(board[ny][logicX]);
                 bomb.SetReachUp(j + 1);
             }
             bomb.SetIsCollisionUp(true);
@@ -136,7 +136,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
         if (ny >= MAP_TILES) break;
         if (board[ny][logicX].obstacle == 1) {
             if (!bomb.GetIsCollisionDown()) {
-                board[ny][logicX].obstacle = 0;
+                BreakBoardObstacle(board[ny][logicX]);
                 bomb.SetReachDown(j + 1);
             }
             bomb.SetIsCollisionDown(true);

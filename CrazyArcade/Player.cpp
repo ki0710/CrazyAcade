@@ -22,7 +22,8 @@ void Player::Init_Player(POINT pos)
     this->destY = pos.y;
 
 
-    this->speed = 1.0f;
+    const ItemAbilities starting;
+    this->speed = starting.speed;
     // 실수형 좌표(px, py)도 현재 좌표로 초기화
     this->px = static_cast<float>(pos.x);
     this->py = static_cast<float>(pos.y);
@@ -31,8 +32,8 @@ void Player::Init_Player(POINT pos)
     this->dir = DIR_DOWN;
 
     //폭탄 사거리 초기화
-    this->SetBomb_distance(1);
-    this->maxBomb = 2;
+    this->SetBomb_distance(starting.blastRange);
+    this->maxBomb = starting.bombLimit;
     this->currrentApple = 0;
 
     //선택 캐릭터 초기화
@@ -115,33 +116,25 @@ void Player::on_applebox(Player* player, int* applebox, int boxX, int boxY)
 
 int Player::collision_item(Player* player, Board board[MAP_TILES][MAP_TILES],int& Pcurrenttime)
 {
-	int px = player->GetX();
-	int py = player->GetY();
-	// 플레이어가 아이템을 먹었는지 확인
-	if (board[py][px].item == 1) { // 물풍선 사거리 증가
-		player->SetBomb_distance(player->GetBomb_distance() + 1);
-		board[py][px].item = 0; // 아이템 사용 후 제거
-        return 1;
-	}
-	else if (board[py][px].item == 2) { // 물풍선 개수 증가
-		player->SetMaxBomb(player->GetMaxBomb() + 1);
-		board[py][px].item = 0; // 아이템 사용 후 제거
-        return 2;
-	}
-	else if (board[py][px].item == 3) { // 이동 속도 증가
-		if (player->Getspeed() < 1.5f) // 최대 속도 제한
-		player->SetSpeed(player->Getspeed() + 0.1f);
-		board[py][px].item = 0; // 아이템 사용 후 제거
-        return 3;
-	}
-	else if (board[py][px].item == 4) { // 시계 아이템 도시맵 전용
-		if (Pcurrenttime > 0) {
-			Pcurrenttime += 5; // 시간 증가
-			board[py][px].item = 0; // 아이템 사용 후 제거
-		}
-		
-	}
-    return 0;
+    const int x = player->GetX();
+    const int y = player->GetY();
+    if (x < 0 || x >= MAP_TILES || y < 0 || y >= MAP_TILES) return 0;
+
+    Board& cell = board[y][x];
+    if (cell.item == 4 && Pcurrenttime > 0) {
+        Pcurrenttime += 5;
+        cell.item = 0;
+        return 0;
+    }
+
+    ItemAbilities abilities{player->GetBomb_distance(), player->GetMaxBomb(), player->Getspeed()};
+    const int item = CollectBasicItem(cell, abilities);
+    if (item) {
+        player->SetBomb_distance(abilities.blastRange);
+        player->SetMaxBomb(abilities.bombLimit);
+        player->SetSpeed(abilities.speed);
+    }
+    return item;
 }
 
 int Player::collision_train(Player* player, Train& train, Board board[MAP_TILES][MAP_TILES], int& Pcurrenttime)

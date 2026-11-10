@@ -1,6 +1,7 @@
 #include "../Common/Session.h"
 #include "../Common/Protocol.h"
 #include "../Common/ConsoleStop.h"
+#include "../Common/MapItemSync.h"
 #include <ws2tcpip.h>
 #include <chrono>
 #include <cstdio>
@@ -9,7 +10,7 @@
 
 namespace {
 using namespace network;
-bool Handle(const Packet& packet, int& playerId, bool& rejected) {
+bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& mapItems) {
     if (packet.header.matchId != 0) return false;
     const auto& payload = packet.payload;
     switch (packet.header.packetType) {
@@ -27,6 +28,12 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected) {
             payload[0] == playerId) return false;
         std::printf("SC_PEER_LEFT: Player ID=%u\n", unsigned(payload[0]));
         return true;
+    case PacketType::SC_SNAPSHOT:
+        if (!playerId || !ApplyMapItemPacket(packet, mapItems)) return false;
+        std::printf("SC_SNAPSHOT: stage=%d map=%dx%d\n", mapItems.stage, MAP_TILES, MAP_TILES);
+        return true;
+    case PacketType::SC_EVENT:
+        return playerId && ApplyMapItemPacket(packet, mapItems);
     case PacketType::SC_ERROR: {
         if (payload.size() != 2) return false;
         const auto code = static_cast<ErrorCode>(PayloadWord(payload.data()));
@@ -64,6 +71,7 @@ int main() {
     {
         Session session(socket);
         int playerId = 0;
+        MapItemState mapItems;
         bool rejected = false;
         bool running = session.Queue(PacketType::CS_HELLO, HelloPayload());
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -95,7 +103,7 @@ int main() {
                 while (running) {
                     const auto extracted = session.received.TryExtract(packet);
                     if (extracted == ExtractResult::NeedMoreData) break;
-                    if (extracted == ExtractResult::InvalidData || !Handle(packet, playerId, rejected)) {
+                    if (extracted == ExtractResult::InvalidData || !Handle(packet, playerId, rejected, mapItems)) {
                         std::printf("Invalid server packet.\n"); exitCode = 1; running = false;
                     }
                     if (rejected) { exitCode = 2; running = false; }

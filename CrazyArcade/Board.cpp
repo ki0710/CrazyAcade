@@ -1,5 +1,6 @@
 #include "Board.h"
 #include <cstdlib>
+#include <algorithm>
 void init_board_Forest(Board board[MAP_TILES][MAP_TILES]) {
     // 하드코딩된 맵 데이터 (0: 흰색, 1: 초록색, 2: 노란색, 3: 갈색)
     int obstacle_map[MAP_TILES][MAP_TILES] = {
@@ -148,4 +149,24 @@ void init_board_Ice(Board board[MAP_TILES][MAP_TILES])
     // 두 플레이어의 시작 칸은 비워 둔다.
     board[5][6] = {};
     board[5][13] = {};
+}
+
+bool BreakBoardObstacle(Board& cell) {
+    if (cell.obstacle != 1) return false;
+    cell.obstacle = 0; // A previously hidden item stays in the now-open cell.
+    return true;
+}
+
+int CollectBasicItem(Board& cell, ItemAbilities& abilities) {
+    if (cell.obstacle != 0) return 0;
+
+    const int item = cell.item;
+    switch (item) {
+    case 1: ++abilities.blastRange; break;
+    case 2: ++abilities.bombLimit; break;
+    case 3: abilities.speed = std::min(1.5f, abilities.speed + 0.1f); break;
+    default: return 0;
+    }
+    cell.item = 0;
+    return item;
 }

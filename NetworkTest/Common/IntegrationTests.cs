@@ -119,6 +119,8 @@ public static class NetworkIntegrationTests
             App second = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(second);
             second.Wait("SC_WELCOME: Player ID=2");
             first.Wait("SC_ROOM_STATE: count=2"); second.Wait("SC_ROOM_STATE: count=2");
+            first.Wait("SC_SNAPSHOT: stage=1 map=20x20");
+            second.Wait("SC_SNAPSHOT: stage=1 map=20x20");
             App third = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(third);
             third.Wait("SC_ERROR: Room full"); third.Exited(2);
             Console.WriteLine("PASS: two real clients, Player IDs, room broadcasts, third-client rejection");
@@ -134,9 +136,9 @@ public static class NetworkIntegrationTests
             replacement.Stop(); second.Stop();
             server.Wait("SC_ROOM_STATE: count=0", mark);
 
-            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 1}), 3);
-            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 1}), 2);
+            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 2}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 1}), 3);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 2}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -149,7 +151,7 @@ public static class NetworkIntegrationTests
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 1});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 2});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -165,7 +167,7 @@ public static class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 1});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 2});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");

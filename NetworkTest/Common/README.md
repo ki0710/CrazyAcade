@@ -1,8 +1,8 @@
 # NetworkTest packet connection
 
-The existing Winsock TCP setup (port 9000, client 127.0.0.1) now uses the
-Common framing and I/O utilities. CrazyArcade game sources/project files are
-unchanged. Movement and water balloons are outside this stage.
+The Winsock test programs use the shared framing and I/O utilities
+(port 9000, client 127.0.0.1). The test server generates one forest map with
+the game's board initializer and sends its state to both approved clients.
 
 ## Build and run
 
@@ -16,7 +16,8 @@ The script builds the server, client, and standalone unit tests with MSVC
 `/EHsc /W4 /std:c++14`, links `Ws2_32.lib`, and runs the unit tests. Output is
 in `NetworkTest\Common\build\` (ignored executable/object files).
 The server and client each compile their own entry point together with
-`Packet.cpp` and `SocketUtils.cpp`. Do not add `PacketTests.cpp` to either
+`Packet.cpp`, `SocketUtils.cpp`, and `MapItemSync.cpp`. The server also compiles
+`CrazyArcade/Board.cpp` for map generation. Do not add `PacketTests.cpp` to either
 application: that test includes the socket implementation with scripted I/O.
 The build does not change the CrazyArcade Visual Studio solution.
 
@@ -51,11 +52,13 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (1) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (2) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | approved player count uint8 (0 to 2) |
 | SC_ERROR | 4 | errorCode uint16 |
 | SC_PEER_LEFT | 5 | departed playerId uint8 (1 or 2) |
+| SC_SNAPSHOT | 6 | map and basic item state |
+| SC_EVENT | 7 | obstacle broken or basic item collected |
 
 Error codes: 1 room full, 2 invalid request, 3 version mismatch, 4 HELLO timeout.
 Only one CS_HELLO is permitted per connection; server-direction packets,
@@ -65,6 +68,24 @@ only after validating HELLO. WELCOME precedes ROOM_STATE for a new player.
 ROOM_STATE is broadcast after approval and departure; PEER_LEFT identifies
 the departing approved player. The client validates response direction,
 state, payload length, IDs, error codes, and matchId before printing.
+
+## Map and basic item state
+
+Build the server and both clients together for protocol version 2. Once two
+players are approved, the server queues the same snapshot for both.
+The snapshot contains the stage byte, 400 row-major cells, and the two
+players' abilities in player-ID order. Each cell contains four bytes:
+obstacle, obstacle subtype, tile, and item type. A nonzero obstacle hides
+the item. Ability fields are blast range and bomb limit (uint16 each) and
+speed in tenths (uint8).
+
+An item event contains a kind byte, the cell ID (uint16, row * 20 + column + 1)
+and the item type byte. Kind 1 clears a breakable obstacle and preserves the
+hidden item (0 if empty). Kind 2 clears a collected basic item and appends
+the winner's player ID (uint8) and resulting abilities. The receiver applies
+the server's resulting values. The test server sends the initial snapshot.
+The gameplay server can use the event encoders after authoritative obstacle
+and pickup handling.
 
 ## Connection handling
 

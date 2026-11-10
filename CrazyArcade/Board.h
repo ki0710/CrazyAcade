@@ -12,6 +12,15 @@ typedef struct Board {
 
 }Board;
 #define MAP_TILES      20
+struct ItemAbilities {
+    int blastRange = 1;
+    int bombLimit = 2;
+    float speed = 1.0f;
+};
+
+bool BreakBoardObstacle(Board& cell);
+int CollectBasicItem(Board& cell, ItemAbilities& abilities);
+
 void init_board_Forest(Board board[MAP_TILES][MAP_TILES]);
 void init_board_City(Board board[MAP_TILES][MAP_TILES]);
 void init_board_Ice(Board board[MAP_TILES][MAP_TILES]);

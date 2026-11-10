@@ -3,7 +3,7 @@
 
 namespace network {
 constexpr std::uint16_t kGameVersion = 1;
-constexpr std::uint16_t kProtocolVersion = 1;
+constexpr std::uint16_t kProtocolVersion = 2;
 enum class ErrorCode : std::uint16_t { RoomFull = 1, BadRequest = 2, VersionMismatch = 3, Timeout = 4 };
 
 inline std::vector<std::uint8_t> HelloPayload() {

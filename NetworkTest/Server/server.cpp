@@ -1,10 +1,12 @@
 #include "../Common/Session.h"
 #include "../Common/Protocol.h"
 #include "../Common/ConsoleStop.h"
+#include "../Common/MapItemSync.h"
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -28,6 +30,12 @@ class Room {
 public:
     std::vector<std::unique_ptr<Client>> clients;
     Client* slots[2] = {nullptr, nullptr};
+    MapItemState mapItems;
+
+    Room() {
+        mapItems.stage = 1;
+        init_board_Forest(mapItems.board);
+    }
 
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload) {
         if (!client.dead && !client.closing && !client.Queue(type, payload)) client.dead = true;
@@ -64,6 +72,10 @@ public:
         Queue(client, PacketType::SC_WELCOME, {static_cast<std::uint8_t>(client.playerId)});
         std::printf("SC_WELCOME: Player ID=%d\n", client.playerId);
         BroadcastState();
+        if (slots[0] && slots[1]) {
+            const auto snapshot = EncodeMapItemSnapshot(mapItems);
+            Broadcast(PacketType::SC_SNAPSHOT, snapshot);
+        }
     }
     void Read(Client& client) {
         const auto result = ReceiveOnce(client.socket, client.received);
@@ -121,7 +133,8 @@ int main() {
     std::printf("Server listening on port %u. Enter or Ctrl+C to stop.\n", unsigned(kPort));
     int exitCode = 0;
     {
-        Room room;
+        std::srand(static_cast<unsigned>(Clock::now().time_since_epoch().count()));
+    Room room;
         while (!StopRequested()) {
             fd_set readable, writable;
             FD_ZERO(&readable);
