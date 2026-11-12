@@ -5,11 +5,23 @@
 #include <ws2tcpip.h>
 #include <chrono>
 #include <cstdio>
+#include <limits>
 
 #pragma comment(lib, "ws2_32.lib")
 
 namespace {
 using namespace network;
+bool KeyDirection(int key, std::uint8_t& directionMask) {
+    switch (key) {
+    case 'w': case 'W': directionMask = kInputUp; return true;
+    case 's': case 'S': directionMask = kInputDown; return true;
+    case 'a': case 'A': directionMask = kInputLeft; return true;
+    case 'd': case 'D': directionMask = kInputRight; return true;
+    case 'x': case 'X': directionMask = kInputNone; return true;
+    default: return false;
+    }
+}
+
 bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& mapItems) {
     if (packet.header.matchId != 0) return false;
     const auto& payload = packet.payload;
@@ -48,15 +60,21 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
 }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IONBF, 0);
+    const char* serverIp = argc > 1 ? argv[1] : "127.0.0.1";
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
     SOCKET socket = ::socket(AF_INET, SOCK_STREAM, 0);
     if (socket == INVALID_SOCKET) { WSACleanup(); return 1; }
     sockaddr_in address = {};
     address.sin_family = AF_INET;
-    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+    if (inet_pton(AF_INET, serverIp, &address.sin_addr) != 1) {
+        std::printf("Invalid server IPv4 address: \"%s\". Example: Client.exe 192.168.0.15\n", serverIp);
+        closesocket(socket);
+        WSACleanup();
+        return 1;
+    }
     address.sin_port = htons(9000);
     if (connect(socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR ||
         !SetNonblocking(socket)) {
@@ -66,16 +84,33 @@ int main() {
         return 1;
     }
     SetConsoleCtrlHandler(StopHandler, TRUE);
-    std::printf("Connected to 127.0.0.1:9000. Enter or Ctrl+C to exit.\n");
+    std::printf("Connected to %s:9000. Enter or Ctrl+C to exit.\n", serverIp);
+    std::printf("After SC_WELCOME: W/A/S/D sends a direction, X sends NONE.\n");
     int exitCode = 0;
     {
         Session session(socket);
         int playerId = 0;
+        std::uint32_t sequence = 0;
         MapItemState mapItems;
         bool rejected = false;
         bool running = session.Queue(PacketType::CS_HELLO, HelloPayload());
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-        while (running && !StopRequested()) {
+        while (running) {
+            std::vector<int> keys;
+            if (StopRequested(&keys)) break;
+            for (int key : keys) {
+                std::uint8_t directionMask;
+                if (!playerId || !KeyDirection(key, directionMask)) continue;
+                if (sequence == (std::numeric_limits<std::uint32_t>::max)() ||
+                    !session.Queue(PacketType::CS_INPUT, InputPayload(directionMask, sequence + 1))) {
+                    std::printf("Input queue failed or sequence exhausted.\n");
+                    exitCode = 1; running = false; break;
+                }
+                ++sequence;
+                std::printf("Queued CS_INPUT: %s, sequence=%u\n",
+                    InputDirectionText(directionMask), static_cast<unsigned>(sequence));
+            }
+            if (!running) break;
             fd_set readable, writable;
             FD_ZERO(&readable);
             FD_ZERO(&writable);

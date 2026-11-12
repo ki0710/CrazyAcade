@@ -35,6 +35,38 @@ and exits with code 2; normal shutdown exits with code 0; local communication
 or protocol failures exit with code 1. Startup connect remains a blocking TCP
 connect; subsequent communication uses nonblocking sockets.
 
+## TCP movement input test
+
+Build the server and clients together for protocol version **3**; version 2
+binaries are rejected by the existing HELLO version check. Existing packet
+numbers 1 through 7 are unchanged. The server address remains 127.0.0.1:9000.
+
+1. Start Server.exe, then Client.exe in two separate console windows.
+2. Wait for SC_WELCOME assigning Player 1 and Player 2 and for both map snapshots.
+3. In each client, press W/A/S/D (upper or lower case) for UP/LEFT/DOWN/RIGHT.
+4. Press X for NONE. No Enter is needed for movement; Enter still exits.
+5. Verify server lines such as `Player 1 -> RIGHT, sequence=1` and
+   `Player 2 -> UP, sequence=1`. Input can be entered at both clients concurrently.
+6. Exit one client with Enter or Ctrl+C, verify SC_PEER_LEFT at the other,
+   then reconnect and check that the freed slot is reused.
+
+The client prints `Queued CS_INPUT` when it queues a valid key after WELCOME.
+Each connection starts at sequence 1; unrelated keys do not advance it. Console
+key repeat may send additional inputs. Releasing a key does not produce a
+console key-up request: X explicitly sends NONE for this transport-only test.
+Enter/Ctrl+C exits, and input received before WELCOME is not sent.
+
+CS_INPUT has a five-byte payload: one directionMask byte followed by a
+big-endian uint32 sequence. Only NONE=0x00, UP=0x01, DOWN=0x02, LEFT=0x04,
+RIGHT=0x08 are valid; combined masks and any other payload length are rejected.
+There is no player-ID field. The server uses the approved Session's playerId,
+requires matchId=0, and prints the received sequence without ordering/replay
+correction. Invalid input receives SC_ERROR (invalid request) and closes that
+connection. The client stops rather than wrapping its sequence after uint32 max.
+
+This test does not call HandlePlayerMovement, change Player or Board positions,
+send SC_STATE, or connect CrazyArcade's keyboard input to TCP.
+
 ## Wire contract
 
 | Offset | Bytes | Field |
@@ -52,17 +84,19 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (2) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (3) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | approved player count uint8 (0 to 2) |
 | SC_ERROR | 4 | errorCode uint16 |
 | SC_PEER_LEFT | 5 | departed playerId uint8 (1 or 2) |
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
+| CS_INPUT | 8 | directionMask uint8, sequence uint32 |
 
 Error codes: 1 room full, 2 invalid request, 3 version mismatch, 4 HELLO timeout.
 Only one CS_HELLO is permitted per connection; server-direction packets,
 nonzero matchId, repeated HELLO, or wrong payload lengths are invalid requests.
+CS_INPUT is accepted only after HELLO approval and validates its direction mask.
 A full room can reject immediately on accept. Otherwise a slot is assigned
 only after validating HELLO. WELCOME precedes ROOM_STATE for a new player.
 ROOM_STATE is broadcast after approval and departure; PEER_LEFT identifies
@@ -71,7 +105,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 2. Once two
+Build the server and both clients together for protocol version 3. Once two
 players are approved, the server queues the same snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -130,12 +164,16 @@ stdin for normal Enter shutdown.
 Actual executable tests cover two concurrent clients and distinct IDs,
 ROOM_STATE at both clients, third-client SC_ERROR, normal client departure,
 PEER_LEFT, slot reuse, renewed room broadcasts, game/protocol version mismatch,
+simultaneous console movement inputs, independent sequences and Session IDs,
+invalid movement masks/lengths/matchId and input before HELLO approval,
 invalid matchId/direction/payload/length/type, segmented writes, coalesced
 repeated requests, truncated EOF, handshake timeout, and normal server shutdown
 with a connected client. Segmented writes alone do not force TCP segmentation;
 the unit tests deterministically check every two-part frame split position.
 
 PacketTests checks exact wire bytes, split/merged frames, maximum-size frames,
+all five input directions, uint32 sequence round trips, all 256 direction-byte
+values, invalid input sizes, and every split of the 15-byte CS_INPUT frame,
 invalid lengths/types, short sends, WSAEWOULDBLOCK resumption, 4096-byte recv,
 EOF/truncated EOF, and socket errors. Short sends and would-block are forced
 using scripted Winsock substitutes in the actual SocketUtils implementation;
