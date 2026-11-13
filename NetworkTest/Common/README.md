@@ -28,6 +28,14 @@ NetworkTest\Common\build\Server.exe
 NetworkTest\Common\build\Client.exe
 ```
 
+For the ice-map state test, start the server with `Server.exe 3` and then
+connect two clients. Both clients print the ice map and initial hearts 3,3.
+The room's `ResolveIceHits` accepts confirmed player hits from one game update,
+applies all damage, and then resolves the result once. Bomb handling must
+report each bomb/player pair once, as in the existing game hit flags.
+The console connection program currently supplies the initial map; the
+combat caller provides the confirmed hit batch.
+
 Run Client.exe again for the third-client rejection test. Press Enter or
 Ctrl+C in a running application to shut it down. The server keeps accepting
 connections after either player leaves. A rejected client prints SC_ERROR
@@ -37,7 +45,7 @@ connect; subsequent communication uses nonblocking sockets.
 
 ## TCP movement input test
 
-Build the server and clients together for protocol version **3**; version 2
+Build the server and clients together for protocol version **5**; version 2
 binaries are rejected by the existing HELLO version check. Existing packet
 numbers 1 through 7 are unchanged. The server address remains 127.0.0.1:9000.
 
@@ -64,8 +72,9 @@ requires matchId=0, and prints the received sequence without ordering/replay
 correction. Invalid input receives SC_ERROR (invalid request) and closes that
 connection. The client stops rather than wrapping its sequence after uint32 max.
 
-This test does not call HandlePlayerMovement, change Player or Board positions,
-send SC_STATE, or connect CrazyArcade's keyboard input to TCP.
+The movement transport handler logs directions and sequences. Position updates
+and CrazyArcade keyboard integration belong to the later combat integration.
+The ice state path sends hearts and results through SC_STATE and SC_MATCH_END.
 
 ## Wire contract
 
@@ -84,7 +93,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (3) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (5) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | approved player count uint8 (0 to 2) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -92,6 +101,8 @@ size limit. Unknown packet types and invalid lengths are rejected.
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
 | CS_INPUT | 8 | directionMask uint8, sequence uint32 |
+| SC_STATE | 9 | ice hearts and result |
+| SC_MATCH_END | 10 | final ice hearts and result |
 
 Error codes: 1 room full, 2 invalid request, 3 version mismatch, 4 HELLO timeout.
 Only one CS_HELLO is permitted per connection; server-direction packets,
@@ -105,13 +116,23 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 3. Once two
+Build the server and both clients together for protocol version 5. Once two
 players are approved, the server queues the same snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
 obstacle, obstacle subtype, tile, and item type. A nonzero obstacle hides
 the item. Ability fields are blast range and bomb limit (uint16 each) and
 speed in tenths (uint8).
+
+An ice snapshot appends three bytes: Player 1 hearts, Player 2 hearts, and
+result. SC_STATE and SC_MATCH_END use those same three bytes. Hearts are 0
+through 3. Results are 0 playing, 1 Player 1 win, 2 Player 2 win, 3 draw.
+Both players start with three hearts. Confirmed hits remove one heart each,
+and resolution occurs after all hits in the update. If both hearts reach
+zero in that update, the result is a draw. A resolved result is fixed.
+
+Protocol version 5 combines movement input (8) with ice state (9) and
+match result (10). Rebuild the server and both clients together.
 
 An item event contains a kind byte, the cell ID (uint16, row * 20 + column + 1)
 and the item type byte. Kind 1 clears a breakable obstacle and preserves the

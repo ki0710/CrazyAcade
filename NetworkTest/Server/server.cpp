@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <vector>
 
@@ -32,9 +33,22 @@ public:
     Client* slots[2] = {nullptr, nullptr};
     MapItemState mapItems;
 
-    Room() {
-        mapItems.stage = 1;
-        init_board_Forest(mapItems.board);
+    explicit Room(int stage = 1) {
+        mapItems.stage = stage;
+        if (stage == 3) init_board_Ice(mapItems.board);
+        else init_board_Forest(mapItems.board);
+    }
+
+    // The game loop supplies confirmed bomb hits for one completed update.
+    void ResolveIceHits(const std::vector<int>& playerIds) {
+        if (mapItems.stage != 3 || mapItems.ice.result != IceResult::Playing) return;
+        bool changed = false;
+        for (int playerId : playerIds) {
+            if (ApplyIceHit(mapItems.ice, playerId)) changed = true;
+        }
+        const bool ended = FinishIceTick(mapItems.ice);
+        if (changed) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice));
+        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice));
     }
 
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload) {
@@ -87,6 +101,9 @@ public:
         if (slots[0] && slots[1]) {
             const auto snapshot = EncodeMapItemSnapshot(mapItems);
             Broadcast(PacketType::SC_SNAPSHOT, snapshot);
+            if (mapItems.stage == 3) {
+                Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice));
+            }
         }
     }
     void Read(Client& client) {
@@ -124,8 +141,14 @@ public:
 };
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     setvbuf(stdout, nullptr, _IONBF, 0);
+    int stage = 1;
+    if (argc == 2 && std::strcmp(argv[1], "3") == 0) stage = 3;
+    else if (argc > 1) {
+        std::printf("Usage: Server.exe [3] (3 selects the ice map)\n");
+        return 1;
+    }
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
     SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
@@ -146,7 +169,7 @@ int main() {
     int exitCode = 0;
     {
         std::srand(static_cast<unsigned>(Clock::now().time_since_epoch().count()));
-    Room room;
+        Room room(stage);
         while (!StopRequested()) {
             fd_set readable, writable;
             FD_ZERO(&readable);

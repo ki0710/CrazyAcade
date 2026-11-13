@@ -42,6 +42,9 @@
     <ClInclude Include="BoardRender.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="IceState.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="Bomb.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
@@ -69,6 +72,9 @@
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="BoardRender.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="IceState.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="Bomb.cpp">

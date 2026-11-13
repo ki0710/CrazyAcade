@@ -10,6 +10,30 @@ constexpr std::size_t kCellSize = 4;
 constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
 constexpr std::size_t kSnapshotSize = 1 + MAP_TILES * MAP_TILES * kCellSize + 2 * kAbilitySize;
+constexpr std::size_t kIceStateSize = 3;
+
+bool ValidIceState(const IceState& state) {
+    for (int hearts : state.hearts) {
+        if (hearts < 0 || hearts > 3) return false;
+    }
+    switch (state.result) {
+    case IceResult::Playing: return state.hearts[0] > 0 && state.hearts[1] > 0;
+    case IceResult::Player1Win: return state.hearts[0] > 0 && state.hearts[1] == 0;
+    case IceResult::Player2Win: return state.hearts[0] == 0 && state.hearts[1] > 0;
+    case IceResult::Draw: return state.hearts[0] == 0 && state.hearts[1] == 0;
+    default: return false;
+    }
+}
+
+bool ReadIceState(const std::uint8_t* p, IceState& state) {
+    IceState decoded;
+    decoded.hearts[0] = p[0];
+    decoded.hearts[1] = p[1];
+    decoded.result = static_cast<IceResult>(p[2]);
+    if (!ValidIceState(decoded)) return false;
+    state = decoded;
+    return true;
+}
 
 bool ValidCell(const Board& cell, int stage) {
     const int maxObstacle = stage == 1 ? 3 : (stage == 2 ? 6 : 2);
@@ -54,7 +78,9 @@ std::vector<std::uint8_t> CellEvent(std::uint8_t kind, int x, int y, int item) {
 }
 
 bool ApplySnapshot(const std::vector<std::uint8_t>& payload, MapItemState& state) {
-    if (payload.size() != kSnapshotSize || payload[0] < 1 || payload[0] > 3) return false;
+    if (payload.empty() || payload[0] < 1 || payload[0] > 3) return false;
+    const auto expected = kSnapshotSize + (payload[0] == 3 ? kIceStateSize : 0);
+    if (payload.size() != expected) return false;
     MapItemState snapshot;
     snapshot.stage = payload[0];
     const std::uint8_t* p = payload.data() + 1;
@@ -70,7 +96,22 @@ bool ApplySnapshot(const std::vector<std::uint8_t>& payload, MapItemState& state
         if (!ValidAbilities(abilities)) return false;
         p += kAbilitySize;
     }
+    if (snapshot.stage == 3 && !ReadIceState(p, snapshot.ice)) return false;
     state = snapshot;
+    return true;
+}
+
+bool ApplyIceUpdate(const Packet& packet, MapItemState& state) {
+    if (state.stage != 3 || packet.payload.size() != kIceStateSize) return false;
+    IceState decoded;
+    if (!ReadIceState(packet.payload.data(), decoded)) return false;
+    if (packet.header.packetType == PacketType::SC_MATCH_END &&
+        decoded.result == IceResult::Playing) return false;
+    if (state.ice.result != IceResult::Playing &&
+        (decoded.result != state.ice.result ||
+         decoded.hearts[0] != state.ice.hearts[0] ||
+         decoded.hearts[1] != state.ice.hearts[1])) return false;
+    state.ice = decoded;
     return true;
 }
 
@@ -105,7 +146,7 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state) {
 std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state) {
     if (state.stage < 1 || state.stage > 3) return {};
     std::vector<std::uint8_t> payload;
-    payload.reserve(kSnapshotSize);
+    payload.reserve(kSnapshotSize + (state.stage == 3 ? kIceStateSize : 0));
     payload.push_back(static_cast<std::uint8_t>(state.stage));
     for (const auto& row : state.board) {
         for (const auto& cell : row) {
@@ -120,7 +161,19 @@ std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state) {
         if (!ValidAbilities(abilities)) return {};
         AppendAbilities(payload, abilities);
     }
+    if (state.stage == 3) {
+        const auto ice = EncodeIceState(state.ice);
+        if (ice.empty()) return {};
+        payload.insert(payload.end(), ice.begin(), ice.end());
+    }
     return payload;
+}
+
+std::vector<std::uint8_t> EncodeIceState(const IceState& state) {
+    if (!ValidIceState(state)) return {};
+    return {static_cast<std::uint8_t>(state.hearts[0]),
+            static_cast<std::uint8_t>(state.hearts[1]),
+            static_cast<std::uint8_t>(state.result)};
 }
 
 std::vector<std::uint8_t> EncodeObstacleBroken(int x, int y, const Board& cell) {
@@ -141,6 +194,8 @@ std::vector<std::uint8_t> EncodeItemCollected(
 bool ApplyMapItemPacket(const Packet& packet, MapItemState& state) {
     if (packet.header.packetType == PacketType::SC_SNAPSHOT) return ApplySnapshot(packet.payload, state);
     if (packet.header.packetType == PacketType::SC_EVENT) return ApplyEvent(packet.payload, state);
+    if (packet.header.packetType == PacketType::SC_STATE ||
+        packet.header.packetType == PacketType::SC_MATCH_END) return ApplyIceUpdate(packet, state);
     return false;
 }
 

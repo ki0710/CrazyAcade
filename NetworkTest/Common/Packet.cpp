@@ -23,7 +23,9 @@ bool IsValidPacketType(PacketType type) {
     case PacketType::SC_PEER_LEFT:
     case PacketType::SC_SNAPSHOT:
     case PacketType::SC_EVENT:
-    case PacketType::CS_INPUT: return true;
+    case PacketType::CS_INPUT:
+    case PacketType::SC_STATE:
+    case PacketType::SC_MATCH_END: return true;
     default: return false;
     }
 }

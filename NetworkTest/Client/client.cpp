@@ -46,6 +46,13 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         return true;
     case PacketType::SC_EVENT:
         return playerId && ApplyMapItemPacket(packet, mapItems);
+    case PacketType::SC_STATE:
+    case PacketType::SC_MATCH_END:
+        if (!playerId || !ApplyMapItemPacket(packet, mapItems)) return false;
+        std::printf("%s: hearts=%d,%d result=%d\n",
+            packet.header.packetType == PacketType::SC_STATE ? "SC_STATE" : "SC_MATCH_END",
+            mapItems.ice.hearts[0], mapItems.ice.hearts[1], static_cast<int>(mapItems.ice.result));
+        return true;
     case PacketType::SC_ERROR: {
         if (payload.size() != 2) return false;
         const auto code = static_cast<ErrorCode>(PayloadWord(payload.data()));

@@ -14,10 +14,10 @@ public static class NetworkIntegrationTests
         public readonly Process Process;
         readonly List<string> lines = new List<string>();
         readonly AutoResetEvent changed = new AutoResetEvent(false);
-        public App(string executable)
+        public App(string executable, string arguments = "")
         {
             Process = new Process();
-            Process.StartInfo = new ProcessStartInfo(executable) {
+            Process.StartInfo = new ProcessStartInfo(executable, arguments) {
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardOutput = true,
                 RedirectStandardError = true
@@ -120,7 +120,7 @@ public static class NetworkIntegrationTests
         using (TcpClient raw = Connect()) {
             NetworkStream stream = raw.GetStream();
             if (approved) {
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
                 stream.Write(hello, 0, hello.Length);
                 Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
                 Check(Receive(stream, 3)[0] == 1, "Missing input test room state");
@@ -180,10 +180,12 @@ public static class NetworkIntegrationTests
             replacement.Stop(); second.Stop();
             server.Wait("SC_ROOM_STATE: count=0", mark);
 
-            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 3}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 5}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 1}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 3}), 2);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 3}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 4}), 3);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 5}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -206,7 +208,7 @@ public static class NetworkIntegrationTests
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -222,7 +224,7 @@ public static class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
@@ -239,6 +241,19 @@ public static class NetworkIntegrationTests
             final.Wait("SC_WELCOME: Player ID=1");
             server.Stop(); final.Wait("Server disconnected."); final.Exited(0);
             Console.WriteLine("PASS: normal server shutdown with a connected client");
+            using (App iceServer = new App(Path.Combine(buildDirectory, "Server.exe"), "3")) {
+                iceServer.Wait("Server listening");
+                using (App iceFirst = new App(Path.Combine(buildDirectory, "Client.exe")))
+                using (App iceSecond = new App(Path.Combine(buildDirectory, "Client.exe"))) {
+                    iceFirst.Wait("SC_SNAPSHOT: stage=3 map=20x20");
+                    iceSecond.Wait("SC_SNAPSHOT: stage=3 map=20x20");
+                    iceFirst.Wait("SC_STATE: hearts=3,3 result=0");
+                    iceSecond.Wait("SC_STATE: hearts=3,3 result=0");
+                    iceFirst.Stop(); iceSecond.Stop();
+                }
+                iceServer.Stop();
+            }
+            Console.WriteLine("PASS: ice server sends the same initial hearts to both real clients");
         } finally {
             for (int i = apps.Count - 1; i >= 0; --i) apps[i].Dispose();
         }

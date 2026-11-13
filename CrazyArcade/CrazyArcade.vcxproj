@@ -140,6 +140,7 @@
   <ItemGroup>
     <ClInclude Include="Board.h" />
     <ClInclude Include="BoardRender.h" />
+    <ClInclude Include="IceState.h" />
     <ClInclude Include="Bomb.h" />
     <ClInclude Include="CrazyArcade.h" />
     <ClInclude Include="framework.h" />
@@ -155,6 +156,7 @@
   <ItemGroup>
     <ClCompile Include="Board.cpp" />
     <ClCompile Include="BoardRender.cpp" />
+    <ClCompile Include="IceState.cpp" />
     <ClCompile Include="Bomb.cpp" />
     <ClCompile Include="CrazyArcade.cpp" />
     <ClCompile Include="Player.cpp" />

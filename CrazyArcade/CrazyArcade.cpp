@@ -1,5 +1,6 @@
 ﻿#include"pch.h"
 #include "BoardRender.h"
+#include "IceState.h"
 #include"Train.h"
 #include"Bomb.h"
 #include"ResourceManager.h"
@@ -142,8 +143,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	static int p1currentTime = 100;
 	static int p2currentTime = 100;
     //스테이지 3
-	static int p1CurrentHeart = 0;
-	static int p2CurrentHeart = 0;
+    static IceState ice;
+    int& p1CurrentHeart = ice.hearts[0];
+    int& p2CurrentHeart = ice.hearts[1];
 
     //현재 아이템 개수 파악
 	static int p1_current_item[3] = { 0,0,0 }; 
@@ -245,6 +247,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (wParam < 256) keyStates[wParam] = false;
         break;
     case WM_TIMER: {
+        if (selected_stage == 3 && ice.result != IceResult::Playing) break;
         switch (wParam) {
         case 1: {
             
@@ -389,10 +392,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         p1currentTime -= 2;
                     }
                     else if (selected_stage == 3) {
-                        p1CurrentHeart--;
+                        ApplyIceHit(ice, 1);
                     }
-                    if ((selected_stage == 2 && p1currentTime <= 0) ||
-                        (selected_stage == 3 && p1CurrentHeart <= 0)) {
+                    if (selected_stage == 2 && p1currentTime <= 0) {
                         game_end = true;
                         game_winner = 2;
                         PlaySound(NULL, NULL, NULL);
@@ -430,14 +432,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         }
                         else if (selected_stage == 3) {
                             //스테이지 3 충돌 처리
-                            p2CurrentHeart--;
+                            ApplyIceHit(ice, 2);
                             p1bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 2와 충돌한 경우
-							if (p2CurrentHeart <= 0) {
-								game_end = true;
-								game_winner = 1; // 플레이어 1 승리
-                                PlaySound(NULL, NULL, NULL);
-                                PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Win.wav"), NULL, SND_ASYNC);
-							}
                         }
                     }
 				}
@@ -461,10 +457,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         p2currentTime -= 2;
                     }
                     else if (selected_stage == 3) {
-                        p2CurrentHeart--;
+                        ApplyIceHit(ice, 2);
                     }
-                    if ((selected_stage == 2 && p2currentTime <= 0) ||
-                        (selected_stage == 3 && p2CurrentHeart <= 0)) {
+                    if (selected_stage == 2 && p2currentTime <= 0) {
                         game_end = true;
                         game_winner = 1;
                         PlaySound(NULL, NULL, NULL);
@@ -503,20 +498,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 							}
 							else if (selected_stage == 3) {
 								//스테이지 3 충돌 처리
-                                p1CurrentHeart--;
+                                ApplyIceHit(ice, 1);
                                 p2bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 1과 충돌한 경우
-								if (p1CurrentHeart <= 0) {
-									game_end = true;
-									game_winner = 2; // 플레이어 2 승리
-                                    PlaySound(NULL, NULL, NULL);
-                                    PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Win.wav"), NULL, SND_ASYNC);
-								}
 							}
                         }
                     }
                 }
             
             
+            // Resolve after every bomb in this update has applied its damage.
+            if (selected_stage == 3 && FinishIceTick(ice)) {
+                game_end = true;
+                game_winner = static_cast<int>(ice.result);
+                KillTimer(hWnd, 1);
+                KillTimer(hWnd, 2);
+                PlaySound(NULL, NULL, NULL);
+                PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Win.wav"), NULL, SND_ASYNC);
+            }
+
             // Remove inactive bombs after hit processing, without skipping entries.
             for (int i = static_cast<int>(p1bombs.size()) - 1; i >= 0; --i) {
                 if (p1bombs[i].GetState() == 0)
@@ -624,8 +623,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
                 p1.Init_Player(p1_start_point);
                 p2.Init_Player(p2_start_point);
-                p1CurrentHeart = 3;
-				p2CurrentHeart = 3;
+                ice = {};
                 p2.SetPlayerNum(2);
                 init_board_Ice(board);
                 SetTimer(hWnd, TIMER_ID, TIMER_INTERVAL, NULL);
@@ -923,6 +921,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     TransparentBlt(mem, 1100, 400, 348, 65, gameEndDC, 0, 65, 348, 65, RGB(255, 0, 255));
                 }
               
+                if (game_winner == static_cast<int>(IceResult::Draw)) {
+                    DrawOutlinedText(mem, 550, 400, L"무승부");
+                }
                 DrawOutlinedText(mem, 500, 600,L"다시 시작하려면 R을 누르시오 .");  // 
                 SelectObject(gameEndDC, oldGameEndBitmap);
                 DeleteObject(gameEndBitmap);
