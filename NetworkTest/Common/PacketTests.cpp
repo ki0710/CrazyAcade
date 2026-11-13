@@ -1,5 +1,6 @@
 // Standalone deterministic tests. Do not add this file to a game target.
 #include "SocketUtils.h"
+#include "Protocol.h"
 #include <algorithm>
 #include <cassert>
 #include <iostream>
@@ -41,6 +42,49 @@ int FakeLastError() { return lastError; }
 
 int main() {
     using namespace network;
+    for (std::uint8_t direction : {kInputUp, kInputDown, kInputLeft, kInputRight, kInputNone}) {
+        for (std::uint32_t sequence : {0u, 1u, 0x12345678u, 0xFFFFFFFFu}) {
+            const auto payload = InputPayload(direction, sequence);
+            assert(payload.size() == 5);
+            std::vector<std::uint8_t> frame;
+            assert(EncodePacket(PacketType::CS_INPUT, 0, payload, frame));
+            assert(frame.size() == 15 && frame[3] == 15 && frame[5] == 8);
+            assert(frame[10] == direction && frame[11] == (sequence >> 24) &&
+                   frame[12] == ((sequence >> 16) & 0xFF) &&
+                   frame[13] == ((sequence >> 8) & 0xFF) && frame[14] == (sequence & 0xFF));
+            for (std::size_t split = 0; split <= frame.size(); ++split) {
+                ReceiveBuffer buffer;
+                assert(buffer.Append(frame.data(), split));
+                Packet inputPacket;
+                if (split < frame.size()) {
+                    assert(buffer.TryExtract(inputPacket) == ExtractResult::NeedMoreData);
+                    assert(buffer.Append(frame.data() + split, frame.size() - split));
+                }
+                assert(buffer.TryExtract(inputPacket) == ExtractResult::PacketReady);
+                assert(inputPacket.header.packetType == PacketType::CS_INPUT);
+                InputData input;
+                assert(ReadInputPayload(inputPacket.payload, input));
+                assert(input.directionMask == direction && input.sequence == sequence);
+            }
+        }
+    }
+    for (int direction = 0; direction <= 255; ++direction) {
+        const bool valid = direction == 0 || direction == 1 || direction == 2 ||
+                           direction == 4 || direction == 8;
+        const auto mask = static_cast<std::uint8_t>(direction);
+        InputData input{kInputRight, 99};
+        assert(ReadInputPayload({mask, 0, 0, 0, 1}, input) == valid);
+        assert(!InputPayload(mask, 1).empty() == valid);
+        if (!valid) assert(input.directionMask == kInputRight && input.sequence == 99);
+    }
+    for (std::size_t size = 0; size <= 10; ++size) {
+        if (size == 5) continue;
+        InputData input{kInputRight, 99};
+        assert(!ReadInputPayload(std::vector<std::uint8_t>(size, 0), input));
+        assert(input.directionMask == kInputRight && input.sequence == 99);
+    }
+    std::cout << "CS_INPUT tests passed: directions, sequences, wire bytes, splits and invalid payloads.\n";
+
     std::vector<std::uint8_t> encoded;
     assert(EncodePacket(PacketType::SC_ROOM_STATE, 0x12345678, {0xAB, 0xCD}, encoded));
     const std::vector<std::uint8_t> expected = {

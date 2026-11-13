@@ -55,6 +55,18 @@ public:
         std::printf("SC_ROOM_STATE: count=%u\n", unsigned(count));
     }
     void Handle(Client& client, const Packet& packet) {
+        if (packet.header.packetType == PacketType::CS_INPUT) {
+            InputData input;
+            if (client.playerId < 1 || client.playerId > 2 || packet.header.matchId != 0 ||
+                !ReadInputPayload(packet.payload, input)) {
+                Reject(client, ErrorCode::BadRequest);
+                return;
+            }
+            // Input transport test only: no Player/Board movement or broadcast here.
+            std::printf("Player %d -> %s, sequence=%u\n", client.playerId,
+                InputDirectionText(input.directionMask), static_cast<unsigned>(input.sequence));
+            return;
+        }
         if (client.playerId != 0 || packet.header.matchId != 0 ||
             packet.header.packetType != PacketType::CS_HELLO || packet.payload.size() != 4) {
             Reject(client, ErrorCode::BadRequest);

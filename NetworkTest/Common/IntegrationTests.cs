@@ -48,6 +48,7 @@ public static class NetworkIntegrationTests
             Check(Process.ExitCode == expected, "Unexpected exit code " + Process.ExitCode);
         }
         public void Stop() { Process.StandardInput.WriteLine(); Process.StandardInput.Flush(); Exited(0); }
+        public void Keys(string keys) { Process.StandardInput.Write(keys); Process.StandardInput.Flush(); }
         public void Dispose()
         {
             if (!Process.HasExited) { Process.Kill(); Process.WaitForExit(); }
@@ -108,6 +109,29 @@ public static class NetworkIntegrationTests
             Check(stream.ReadByte() == -1, "Rejected connection not closed");
         }
     }
+    static byte[] Input(byte direction, uint sequence)
+    {
+        return new byte[] {direction, (byte)(sequence >> 24), (byte)(sequence >> 16),
+                           (byte)(sequence >> 8), (byte)sequence};
+    }
+    static void InputErrorCase(App server, byte[] payload, uint match = 0, bool approved = true)
+    {
+        int mark = server.Mark;
+        using (TcpClient raw = Connect()) {
+            NetworkStream stream = raw.GetStream();
+            if (approved) {
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
+                stream.Write(hello, 0, hello.Length);
+                Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
+                Check(Receive(stream, 3)[0] == 1, "Missing input test room state");
+            }
+            byte[] bytes = Frame(8, match, payload);
+            stream.Write(bytes, 0, bytes.Length);
+            Check(Receive(stream, 4)[1] == 2, "Invalid CS_INPUT not rejected");
+            Check(stream.ReadByte() == -1, "Invalid input session not closed");
+        }
+        if (approved) server.Wait("SC_ROOM_STATE: count=0", mark);
+    }
     public static void Run(string buildDirectory)
     {
         List<App> apps = new List<App>();
@@ -125,20 +149,41 @@ public static class NetworkIntegrationTests
             third.Wait("SC_ERROR: Room full"); third.Exited(2);
             Console.WriteLine("PASS: two real clients, Player IDs, room broadcasts, third-client rejection");
 
+            int inputMark = server.Mark;
+            Thread firstInput = new Thread(delegate() { first.Keys("wasdx"); });
+            Thread secondInput = new Thread(delegate() { second.Keys("DWsAX"); });
+            firstInput.Start(); secondInput.Start(); firstInput.Join(); secondInput.Join();
+            string[] firstDirections = {"UP", "LEFT", "DOWN", "RIGHT", "NONE"};
+            string[] secondDirections = {"RIGHT", "UP", "DOWN", "LEFT", "NONE"};
+            for (int i = 0; i < 5; ++i) {
+                server.Wait("Player 1 -> " + firstDirections[i] + ", sequence=" + (i + 1), inputMark);
+                server.Wait("Player 2 -> " + secondDirections[i] + ", sequence=" + (i + 1), inputMark);
+            }
+            first.Wait("Queued CS_INPUT: NONE, sequence=5");
+            second.Wait("Queued CS_INPUT: NONE, sequence=5");
+            first.Keys("q?W");
+            server.Wait("Player 1 -> UP, sequence=6", inputMark);
+            Console.WriteLine("PASS: two real clients send all directions/NONE with independent sequences and Session identities");
+
             first.Stop();
             second.Wait("SC_PEER_LEFT: Player ID=1"); second.Wait("SC_ROOM_STATE: count=1");
             int secondMark = second.Mark;
             App replacement = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(replacement);
             replacement.Wait("SC_WELCOME: Player ID=1"); replacement.Wait("SC_ROOM_STATE: count=2");
             second.Wait("SC_ROOM_STATE: count=2", secondMark);
+            inputMark = server.Mark;
+            replacement.Keys("x"); second.Keys("w");
+            server.Wait("Player 1 -> NONE, sequence=1", inputMark);
+            server.Wait("Player 2 -> UP, sequence=6", inputMark);
             Console.WriteLine("PASS: normal client exit, peer-left notification, slot reuse");
             int mark = server.Mark;
             replacement.Stop(); second.Stop();
             server.Wait("SC_ROOM_STATE: count=0", mark);
 
-            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 2}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 2, 0, 3}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 1}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 2}), 2);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 3}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -148,10 +193,20 @@ public static class NetworkIntegrationTests
             ErrorCase(Frame(99, 0, new byte[0]), 2);
             Console.WriteLine("PASS: version, matchId, direction, payload, length and type validation");
 
+            InputErrorCase(server, Input(3, 1)); // Diagonal combination.
+            InputErrorCase(server, Input(0x10, 1));
+            InputErrorCase(server, Input(0xFF, 1));
+            InputErrorCase(server, new byte[0]);
+            InputErrorCase(server, new byte[4]);
+            InputErrorCase(server, new byte[] {1, 0, 0, 0, 1, 2}); // No player-ID byte.
+            InputErrorCase(server, Input(1, 1), 1);
+            InputErrorCase(server, Input(1, 1), 0, false);
+            Console.WriteLine("PASS: CS_INPUT rejects invalid masks, lengths, matchId and unapproved sessions");
+
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 2});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -167,7 +222,7 @@ public static class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 2});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 3});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
