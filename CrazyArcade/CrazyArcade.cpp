@@ -163,50 +163,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     case WM_KEYDOWN:
         if (wParam < 256) keyStates[wParam] = true;
+        if (game_end) break;
         if (game_started && selected_stage) {
-            if (wParam == VK_SPACE) {
-                if (selected_stage == 1) {
-                    if (p1.GetMaxBomb() > p1bombs.size()) {
-                        Bomb newBomb;
-                        newBomb.make_Bomb(p1, board);
-
-                        p1bombs.push_back(newBomb);
+            if (wParam == VK_SPACE || wParam == VK_RETURN) {
+                Player& player = wParam == VK_SPACE ? p1 : p2;
+                auto& bombs = wParam == VK_SPACE ? p1bombs : p2bombs;
+                if (static_cast<int>(bombs.size()) < player.GetMaxBomb()) {
+                    Bomb newBomb;
+                    if (newBomb.make_Bomb(player, board)) {
+                        bombs.push_back(newBomb);
                         PlaySound(NULL, NULL, NULL);
                         PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Ballon.wav"), NULL, SND_ASYNC);
                     }
                 }
-                else if (selected_stage == 2 || selected_stage == 3) {
-                    if (p1.GetMaxBomb() > p1bombs.size()) {
-                        Bomb newBomb;
-                        newBomb.make_Bomb(p1, board);
-
-                        p1bombs.push_back(newBomb);
-                        PlaySound(NULL, NULL, NULL);
-                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Ballon.wav"), NULL, SND_ASYNC);
-                    }
-                }
-            }
-            if (wParam == VK_RETURN) {
-
-                if (selected_stage == 1) {
-                    if (p2.GetMaxBomb() > p2bombs.size()) {
-                        Bomb newBomb;
-                        newBomb.make_Bomb(p2, board);
-
-                        p2bombs.push_back(newBomb);
-                        PlaySound(NULL, NULL, NULL);
-                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Ballon.wav"), NULL, SND_ASYNC);
-                    }
-                }
-				else if (selected_stage == 2 || selected_stage == 3) {
-					if (p2.GetMaxBomb() > p2bombs.size()) {
-						Bomb newBomb;
-						newBomb.make_Bomb(p2, board);
-						p2bombs.push_back(newBomb);
-                        PlaySound(NULL, NULL, NULL);
-                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Ballon.wav"), NULL, SND_ASYNC);
-					}
-				}
             }
         }
         else if (game_started) {
@@ -247,7 +216,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (wParam < 256) keyStates[wParam] = false;
         break;
     case WM_TIMER: {
-        if (selected_stage == 3 && ice.result != IceResult::Playing) break;
+        if (game_end) break;
         switch (wParam) {
         case 1: {
             
@@ -367,11 +336,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             for (Bomb& bomb : p2bombs) bomb.tick_Bomb();
             for (Bomb& bomb : p1bombs) {
                 if (bomb.GetState() == 2 && bomb.GetTime() == 10)
-                    update_BombExplosion(bomb, board, &p1);
+                    update_BombExplosion(bomb, board, &p1, selected_stage == 1);
             }
             for (Bomb& bomb : p2bombs) {
                 if (bomb.GetState() == 2 && bomb.GetTime() == 10)
-                    update_BombExplosion(bomb, board, &p2);
+                    update_BombExplosion(bomb, board, &p2, selected_stage == 1);
             }
 
             //플레이어 폭탄 충돌
