@@ -21,7 +21,7 @@ class Bomb {
 	bool is_collision_player;
 	bool is_collision_owner; // 설치자와 상대의 피격을 각각 한 번씩 처리한다.
 public:
-	void make_Bomb(Player player,Board board[MAP_TILES][MAP_TILES]);
+	bool make_Bomb(const Player& player, Board board[MAP_TILES][MAP_TILES]);
 	bool tick_Bomb();
 	int collision_bomb_player(Bomb bomb, Player player);
 
@@ -56,5 +56,5 @@ public:
 
 	
 };
-void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player);
+void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player, bool isForest);
 void draw_Bomb(HDC hDC, HINSTANCE g_hInst, const Bomb bombs[], int n, const Board board[MAP_TILES][MAP_TILES]);

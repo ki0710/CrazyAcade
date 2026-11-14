@@ -1,13 +1,15 @@
 #include"Bomb.h"
 #include "BoardRender.h"
 #include "ResourceManager.h"
-void Bomb::make_Bomb(Player player, Board board[MAP_TILES][MAP_TILES])
+bool Bomb::make_Bomb(const Player& player, Board board[MAP_TILES][MAP_TILES])
 {
-	
-	this->pos.x = GetBoardScreenPosition((int)player.GetX(), (int)player.GetY()).x;
-	this->pos.y = GetBoardScreenPosition((int)player.GetX(), (int)player.GetY()).y;
-    this->logicalPos.x = (int)player.GetY();
-    this->logicalPos.y = (int)player.GetX();
+    const int col = player.GetX();
+    const int row = player.GetY();
+    if (!CanMoveTo(col, row, board)) return false;
+
+    this->pos = GetBoardScreenPosition(col, row);
+    this->logicalPos.x = row;
+    this->logicalPos.y = col;
 	this->reach = player.GetBomb_distance();
     this->reachLeft = this->reachRight = this->reachUp = this->reachDown = this->reach;
 	this->state = 1;
@@ -18,7 +20,8 @@ void Bomb::make_Bomb(Player player, Board board[MAP_TILES][MAP_TILES])
     this->isCollisionDown = false;
     this->is_collision_player = false;
     this->is_collision_owner = false;
-    board[(int)player.GetY()][(int)player.GetX()].obstacle = 9;
+    board[row][col].obstacle = 9;
+    return true;
 }
 
 bool Bomb::tick_Bomb()
@@ -41,8 +44,9 @@ int Bomb::collision_bomb_player(Bomb bomb, Player player)
     // Bomb stores row in logicalPos.x and column in logicalPos.y.
     int bombRow = bomb.GetLogicalX();
     int bombCol = bomb.GetLogicalY();
-    int playerRow = player.GetY();
-    int playerCol = player.GetX();
+    // The sprite is centered on px/py; x/y stay on the old tile until the move finishes.
+    const int playerRow = static_cast<int>(player.GetPy() + 0.5f);
+    const int playerCol = static_cast<int>(player.GetPx() + 0.5f);
 
     // The center tile is always part of the explosion.
     if (bombRow == playerRow && bombCol == playerCol) {
@@ -68,12 +72,13 @@ int Bomb::collision_bomb_player(Bomb bomb, Player player)
 
 
 // Called once when a bomb enters the explosion state, before player hit tests.
-void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player)
+void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player* player, bool isForest)
 {
     if (bomb.GetState() != 2) return;
     int logicX = bomb.GetLogicalY();
     int logicY = bomb.GetLogicalX();
-    board[logicY][logicX].obstacle = 0;
+    if (board[logicY][logicX].obstacle == 9)
+        board[logicY][logicX].obstacle = 0;
     for (int j = 0; j < bomb.GetReachLeft(); ++j) {
         int nx = logicX - j - 1;
         if (nx < 0) break;
@@ -89,7 +94,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionLeft()) {
                 bomb.SetIsCollisionLeft(true);
                 bomb.SetReachLeft(j + 1);
-                player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
             }
         }
     }
@@ -108,7 +113,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionRight()) {
                 bomb.SetIsCollisionRight(true);
                 bomb.SetReachRight(j + 1);
-                player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
             }
         }
     }
@@ -127,7 +132,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionUp()) {
                 bomb.SetIsCollisionUp(true);
                 bomb.SetReachUp(j + 1);
-                player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
             }
         }
     }
@@ -146,7 +151,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionDown()) {
                 bomb.SetIsCollisionDown(true);
                 bomb.SetReachDown(j + 1);
-                player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
             }
         }
     }
