@@ -10,10 +10,10 @@ public:
     ~Session() { closesocket(socket); }
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
-    bool Queue(PacketType type, const std::vector<std::uint8_t>& payload) {
+    bool Queue(PacketType type, const std::vector<std::uint8_t>& payload, std::uint32_t matchId = 0) {
         if (outgoing_.size() >= 64) return false;
         PendingSend packet;
-        if (!packet.Prepare(type, 0, payload)) return false;
+        if (!packet.Prepare(type, matchId, payload)) return false;
         outgoing_.push_back(std::move(packet));
         return true;
     }

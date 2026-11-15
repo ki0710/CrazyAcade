@@ -3,8 +3,20 @@
 
 namespace network {
 constexpr std::uint16_t kGameVersion = 1;
-constexpr std::uint16_t kProtocolVersion = 5;
-enum class ErrorCode : std::uint16_t { RoomFull = 1, BadRequest = 2, VersionMismatch = 3, Timeout = 4 };
+constexpr std::uint16_t kProtocolVersion = 8;
+constexpr int kLoadingTimeoutSeconds = 10;
+enum class CancelReason : std::uint8_t { PeerLeft = 1, Timeout = 2, Unready = 3 };
+enum class ErrorCode : std::uint16_t { RoomFull = 1, BadRequest = 2, VersionMismatch = 3, Timeout = 4,
+    SelectionDenied = 5 };
+enum class SelectKind : std::uint8_t { Map = 1, Color = 2 };
+// Existing game values: Forest=1, City=2, Ice=3; Player colorHueTable indices 0..6.
+inline bool ValidMap(std::uint8_t value) { return value >= 1 && value <= 3; }
+inline bool ValidColor(std::uint8_t value) { return value <= 6; }
+inline bool ValidSelectPayload(const std::vector<std::uint8_t>& payload) {
+    return payload.size() == 2 &&
+        ((payload[0] == static_cast<std::uint8_t>(SelectKind::Map) && ValidMap(payload[1])) ||
+         (payload[0] == static_cast<std::uint8_t>(SelectKind::Color) && ValidColor(payload[1])));
+}
 
 inline std::vector<std::uint8_t> HelloPayload() {
     return {static_cast<std::uint8_t>(kGameVersion >> 8),
@@ -14,6 +26,19 @@ inline std::vector<std::uint8_t> HelloPayload() {
 }
 inline std::uint16_t PayloadWord(const std::uint8_t* p) {
     return static_cast<std::uint16_t>((std::uint16_t(p[0]) << 8) | p[1]);
+}
+
+// Room state: [count, P1 ready, P2 ready, map, P1 color, P2 color, host player ID].
+inline bool ReadReadyPayload(const std::vector<std::uint8_t>& payload, bool& ready) {
+    if (payload.size() != 1 || payload[0] > 1) return false;
+    ready = payload[0] != 0;
+    return true;
+}
+inline bool ValidRoomStatePayload(const std::vector<std::uint8_t>& payload) {
+    return payload.size() == 7 && payload[0] <= 2 &&
+           payload[1] <= 1 && payload[2] <= 1 && ValidMap(payload[3]) &&
+           ValidColor(payload[4]) && ValidColor(payload[5]) &&
+           (payload[0] == 0 ? payload[6] == 0 : payload[6] >= 1 && payload[6] <= 2);
 }
 
 constexpr std::uint8_t kInputNone = 0x00;
@@ -66,6 +91,7 @@ inline const char* ErrorText(ErrorCode code) {
     case ErrorCode::BadRequest: return "Invalid request";
     case ErrorCode::VersionMismatch: return "Version mismatch";
     case ErrorCode::Timeout: return "HELLO timeout";
+    case ErrorCode::SelectionDenied: return "Selection denied";
     default: return nullptr;
     }
 }

@@ -21,7 +21,12 @@ enum class PacketType : std::uint16_t {
     SC_EVENT = 7,
     CS_INPUT = 8,
     SC_STATE = 9,
-    SC_MATCH_END = 10
+    SC_MATCH_END = 10,
+    CS_READY = 11,
+    CS_LOADED = 12,
+    SC_MATCH_START = 13,
+    SC_MATCH_CANCEL = 14,
+    CS_SELECT = 15
 };
 
 // Host-order values only. Never transmit sizeof(PacketHeader) bytes.

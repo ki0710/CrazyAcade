@@ -42,6 +42,95 @@ int FakeLastError() { return lastError; }
 
 int main() {
     using namespace network;
+    for (PacketType type : {PacketType::CS_LOADED, PacketType::SC_MATCH_START, PacketType::SC_MATCH_CANCEL}) {
+        const std::vector<std::uint8_t> payload = type == PacketType::SC_MATCH_CANCEL
+            ? std::vector<std::uint8_t>{2} : std::vector<std::uint8_t>{};
+        std::vector<std::uint8_t> frame;
+        assert(EncodePacket(type, 0x12345678, payload, frame));
+        assert(frame.size() == kHeaderSize + payload.size());
+        assert(frame[4] == 0 && frame[5] == static_cast<std::uint16_t>(type));
+        assert(frame[6] == 0x12 && frame[7] == 0x34 && frame[8] == 0x56 && frame[9] == 0x78);
+        for (std::size_t split = 0; split <= frame.size(); ++split) {
+            ReceiveBuffer buffer;
+            Packet packet;
+            assert(buffer.Append(frame.data(), split));
+            if (split < frame.size()) {
+                assert(buffer.TryExtract(packet) == ExtractResult::NeedMoreData);
+                assert(buffer.Append(frame.data() + split, frame.size() - split));
+            }
+            assert(buffer.TryExtract(packet) == ExtractResult::PacketReady);
+            assert(packet.header.matchId == 0x12345678 && packet.header.packetType == type);
+            assert(packet.payload == payload);
+        }
+    }
+    std::cout << "Loading/start/cancel framing and match ID tests passed.\n";
+    for (int value = 0; value <= 255; ++value) {
+        bool ready = true;
+        assert(ReadReadyPayload({static_cast<std::uint8_t>(value)}, ready) == (value <= 1));
+        if (value <= 1) assert(ready == (value == 1));
+        else assert(ready);
+    }
+    bool ready = true;
+    assert(!ReadReadyPayload({}, ready));
+    assert(!ReadReadyPayload({1, 0}, ready));
+    const std::vector<std::uint8_t> room = {2, 1, 1, 1, 0, 6, 1};
+    assert(ValidRoomStatePayload(room));
+    assert(ValidRoomStatePayload({0, 0, 0, 3, 0, 0, 0}));
+    for (std::size_t size = 0; size <= 10; ++size) {
+        auto payload = room;
+        payload.resize(size);
+        assert(ValidRoomStatePayload(payload) == (size == 7));
+    }
+    for (std::size_t field = 0; field < room.size(); ++field) {
+        auto invalid = room;
+        invalid[field] = 255;
+        assert(!ValidRoomStatePayload(invalid));
+    }
+    assert(!ValidRoomStatePayload({2, 0, 0, 0, 0, 0, 1}));
+    assert(!ValidRoomStatePayload({2, 0, 0, 1, 0, 0, 0}));
+    for (int value = 0; value <= 255; ++value) {
+        const auto byte = static_cast<std::uint8_t>(value);
+        assert(ValidSelectPayload({1, byte}) == (value >= 1 && value <= 3));
+        assert(ValidSelectPayload({2, byte}) == (value <= 6));
+        assert(ValidSelectPayload({byte, 1}) == (value == 1 || value == 2));
+    }
+    assert(!ValidSelectPayload({}));
+    assert(!ValidSelectPayload({1}));
+    assert(!ValidSelectPayload({2, 0, 1}));
+    for (const auto& payload : {std::vector<std::uint8_t>{1, 3}, std::vector<std::uint8_t>{2, 6}}) {
+        std::vector<std::uint8_t> frame;
+        assert(EncodePacket(PacketType::CS_SELECT, 0, payload, frame));
+        assert(frame == std::vector<std::uint8_t>({0, 0, 0, 12, 0, 15, 0, 0, 0, 0, payload[0], payload[1]}));
+        for (std::size_t split = 0; split <= frame.size(); ++split) {
+            ReceiveBuffer buffer;
+            Packet packet;
+            assert(buffer.Append(frame.data(), split));
+            if (split < frame.size()) {
+                assert(buffer.TryExtract(packet) == ExtractResult::NeedMoreData);
+                assert(buffer.Append(frame.data() + split, frame.size() - split));
+            }
+            assert(buffer.TryExtract(packet) == ExtractResult::PacketReady);
+            assert(packet.header.packetType == PacketType::CS_SELECT && packet.payload == payload);
+        }
+    }
+    std::cout << "Selection ranges, room state validation and framing tests passed.\n";
+    for (std::uint8_t value : {std::uint8_t(0), std::uint8_t(1)}) {
+        std::vector<std::uint8_t> frame;
+        assert(EncodePacket(PacketType::CS_READY, 0, {value}, frame));
+        assert(frame == std::vector<std::uint8_t>({0, 0, 0, 11, 0, 11, 0, 0, 0, 0, value}));
+        for (std::size_t split = 0; split <= frame.size(); ++split) {
+            ReceiveBuffer buffer;
+            Packet packet;
+            assert(buffer.Append(frame.data(), split));
+            if (split < frame.size()) {
+                assert(buffer.TryExtract(packet) == ExtractResult::NeedMoreData);
+                assert(buffer.Append(frame.data() + split, frame.size() - split));
+            }
+            assert(buffer.TryExtract(packet) == ExtractResult::PacketReady);
+            assert(ReadReadyPayload(packet.payload, ready) && ready == (value == 1));
+        }
+    }
+    std::cout << "Ready and room state payload tests passed.\n";
     for (std::uint8_t direction : {kInputUp, kInputDown, kInputLeft, kInputRight, kInputNone}) {
         for (std::uint32_t sequence : {0u, 1u, 0x12345678u, 0xFFFFFFFFu}) {
             const auto payload = InputPayload(direction, sequence);
