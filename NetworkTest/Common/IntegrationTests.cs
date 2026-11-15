@@ -32,7 +32,7 @@ public static class NetworkIntegrationTests
         public void Wait(string text, int from = 0)
         {
             Stopwatch timer = Stopwatch.StartNew();
-            while (timer.ElapsedMilliseconds < 7000) {
+            while (timer.ElapsedMilliseconds < 13000) {
                 lock (lines) {
                     for (int i = from; i < lines.Count; ++i)
                         if (lines[i].Contains(text)) return;
@@ -49,6 +49,15 @@ public static class NetworkIntegrationTests
         }
         public void Stop() { Process.StandardInput.WriteLine(); Process.StandardInput.Flush(); Exited(0); }
         public void Keys(string keys) { Process.StandardInput.Write(keys); Process.StandardInput.Flush(); }
+        public void Count(string text, int expected, int from = 0)
+        {
+            // Observe a bounded quiet interval, rather than merely seeing the first packet.
+            Thread.Sleep(500);
+            int count = 0;
+            lock (lines) for (int i = from; i < lines.Count; ++i)
+                if (lines[i].Contains(text)) ++count;
+            Check(count == expected, "Expected " + expected + " occurrences of " + text + ", got " + count);
+        }
         public void Dispose()
         {
             if (!Process.HasExited) { Process.Kill(); Process.WaitForExit(); }
@@ -82,13 +91,14 @@ public static class NetworkIntegrationTests
         }
         return result;
     }
-    static byte[] Receive(NetworkStream stream, int type)
+    static byte[] Receive(NetworkStream stream, int type, uint match = 0)
     {
         byte[] header = ReadExactly(stream, 10);
         int size = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
         Check(size >= 10 && size <= 1048576, "Invalid length");
         Check(((header[4] << 8) | header[5]) == type, "Unexpected packet type");
-        Check(header[6] == 0 && header[7] == 0 && header[8] == 0 && header[9] == 0, "matchId != 0");
+        uint id = ((uint)header[6] << 24) | ((uint)header[7] << 16) | ((uint)header[8] << 8) | header[9];
+        Check(id == match, "Unexpected matchId " + id);
         return ReadExactly(stream, size - 10);
     }
     static TcpClient Connect()
@@ -114,21 +124,35 @@ public static class NetworkIntegrationTests
         return new byte[] {direction, (byte)(sequence >> 24), (byte)(sequence >> 16),
                            (byte)(sequence >> 8), (byte)sequence};
     }
-    static void InputErrorCase(App server, byte[] payload, uint match = 0, bool approved = true)
+    static void CheckRoomState(byte[] payload, byte count, byte first, byte second,
+                               byte map = 1, byte color1 = 0, byte color2 = 0, byte host = 1)
+    {
+        Check(payload.Length == 7 && payload[0] == count && payload[1] == first &&
+              payload[2] == second && payload[3] == map && payload[4] == color1 &&
+              payload[5] == color2 && payload[6] == host, "Invalid room state payload");
+    }
+    static void Ready(App sender, App first, App second, string key, string state)
+    {
+        int firstMark = first.Mark, secondMark = second.Mark;
+        sender.Keys(key);
+        first.Wait("SC_ROOM_STATE: count=2 ready=" + state, firstMark);
+        second.Wait("SC_ROOM_STATE: count=2 ready=" + state, secondMark);
+    }
+    static void RequestErrorCase(App server, byte[] payload, uint match = 0, bool approved = true, ushort type = 8)
     {
         int mark = server.Mark;
         using (TcpClient raw = Connect()) {
             NetworkStream stream = raw.GetStream();
             if (approved) {
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 8});
                 stream.Write(hello, 0, hello.Length);
                 Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
-                Check(Receive(stream, 3)[0] == 1, "Missing input test room state");
+                CheckRoomState(Receive(stream, 3), 1, 0, 0);
             }
-            byte[] bytes = Frame(8, match, payload);
+            byte[] bytes = Frame(type, match, payload);
             stream.Write(bytes, 0, bytes.Length);
-            Check(Receive(stream, 4)[1] == 2, "Invalid CS_INPUT not rejected");
-            Check(stream.ReadByte() == -1, "Invalid input session not closed");
+            Check(Receive(stream, 4)[1] == 2, "Invalid request not rejected");
+            Check(stream.ReadByte() == -1, "Invalid request session not closed");
         }
         if (approved) server.Wait("SC_ROOM_STATE: count=0", mark);
     }
@@ -143,8 +167,16 @@ public static class NetworkIntegrationTests
             App second = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(second);
             second.Wait("SC_WELCOME: Player ID=2");
             first.Wait("SC_ROOM_STATE: count=2"); second.Wait("SC_ROOM_STATE: count=2");
-            first.Wait("SC_SNAPSHOT: stage=1 map=20x20");
-            second.Wait("SC_SNAPSHOT: stage=1 map=20x20");
+
+            first.Wait("SC_ROOM_STATE: count=2 ready=0,0");
+            second.Wait("SC_ROOM_STATE: count=2 ready=0,0");
+            Ready(first, first, second, "r", "1,0");
+            Ready(first, first, second, "C", "0,0");
+            Ready(second, first, second, "R", "0,1");
+            Ready(first, first, second, "R", "1,1");
+            Ready(second, first, second, "c", "0,0");
+            Ready(first, first, second, "r", "1,0");
+            Console.WriteLine("PASS: ready/cancel synchronized at both real clients for both player IDs");
             App third = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(third);
             third.Wait("SC_ERROR: Room full"); third.Exited(2);
             Console.WriteLine("PASS: two real clients, Player IDs, room broadcasts, third-client rejection");
@@ -171,6 +203,9 @@ public static class NetworkIntegrationTests
             App replacement = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(replacement);
             replacement.Wait("SC_WELCOME: Player ID=1"); replacement.Wait("SC_ROOM_STATE: count=2");
             second.Wait("SC_ROOM_STATE: count=2", secondMark);
+            replacement.Wait("SC_ROOM_STATE: count=2 ready=0,0");
+            second.Wait("SC_ROOM_STATE: count=2 ready=0,0", secondMark);
+            Console.WriteLine("PASS: ready player departs and reused slot starts unready at both clients");
             inputMark = server.Mark;
             replacement.Keys("x"); second.Keys("w");
             server.Wait("Player 1 -> NONE, sequence=1", inputMark);
@@ -185,7 +220,7 @@ public static class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 3}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 4}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 5}), 2);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 8}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -195,24 +230,49 @@ public static class NetworkIntegrationTests
             ErrorCase(Frame(99, 0, new byte[0]), 2);
             Console.WriteLine("PASS: version, matchId, direction, payload, length and type validation");
 
-            InputErrorCase(server, Input(3, 1)); // Diagonal combination.
-            InputErrorCase(server, Input(0x10, 1));
-            InputErrorCase(server, Input(0xFF, 1));
-            InputErrorCase(server, new byte[0]);
-            InputErrorCase(server, new byte[4]);
-            InputErrorCase(server, new byte[] {1, 0, 0, 0, 1, 2}); // No player-ID byte.
-            InputErrorCase(server, Input(1, 1), 1);
-            InputErrorCase(server, Input(1, 1), 0, false);
+            RequestErrorCase(server, Input(3, 1)); // Diagonal combination.
+            RequestErrorCase(server, Input(0x10, 1));
+            RequestErrorCase(server, Input(0xFF, 1));
+            RequestErrorCase(server, new byte[0]);
+            RequestErrorCase(server, new byte[4]);
+            RequestErrorCase(server, new byte[] {1, 0, 0, 0, 1, 2}); // No player-ID byte.
+            RequestErrorCase(server, Input(1, 1), 1);
+            RequestErrorCase(server, Input(1, 1), 0, false);
             Console.WriteLine("PASS: CS_INPUT rejects invalid masks, lengths, matchId and unapproved sessions");
+            RequestErrorCase(server, new byte[0], 0, true, 11);
+            RequestErrorCase(server, new byte[] {1, 0}, 0, true, 11);
+            RequestErrorCase(server, new byte[] {2}, 0, true, 11);
+            RequestErrorCase(server, new byte[] {255}, 0, true, 11);
+            RequestErrorCase(server, new byte[] {1}, 1, true, 11);
+            RequestErrorCase(server, new byte[] {1}, 0, false, 11);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 5}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 6}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 7}), 3);
+            RequestErrorCase(server, new byte[0], 0, true, 15);
+            RequestErrorCase(server, new byte[] {1}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {2, 0, 1}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {0, 1}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {1, 0}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {1, 4}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {2, 7}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {2, 255}, 0, true, 15);
+            RequestErrorCase(server, new byte[] {1, 1}, 1, true, 15);
+            RequestErrorCase(server, new byte[] {2, 0}, 0, false, 15);
+            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7 rejected");
+            RequestErrorCase(server, new byte[0], 0, true, 12);
+            RequestErrorCase(server, new byte[] {1}, 1, true, 12);
+            RequestErrorCase(server, new byte[0], uint.MaxValue, true, 12);
+            RequestErrorCase(server, new byte[0], 1, false, 12);
+            Console.WriteLine("PASS: CS_READY rejects invalid lengths/values/matchId/unapproved sessions; old version rejected");
 
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 8});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
-                Check(Receive(stream, 3)[0] == 1, "Missing room state");
+                CheckRoomState(Receive(stream, 3), 1, 0, 0);
                 // Two complete requests in one write: repeated HELLO must fail.
                 byte[] merged = new byte[hello.Length * 2];
                 Buffer.BlockCopy(hello, 0, merged, 0, hello.Length);
@@ -224,7 +284,7 @@ public static class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 5});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 8});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
@@ -241,10 +301,15 @@ public static class NetworkIntegrationTests
             final.Wait("SC_WELCOME: Player ID=1");
             server.Stop(); final.Wait("Server disconnected."); final.Exited(0);
             Console.WriteLine("PASS: normal server shutdown with a connected client");
+            MatchFlow(buildDirectory);
+            SelectionFlow(buildDirectory);
+            StaleLoading(buildDirectory);
             using (App iceServer = new App(Path.Combine(buildDirectory, "Server.exe"), "3")) {
                 iceServer.Wait("Server listening");
                 using (App iceFirst = new App(Path.Combine(buildDirectory, "Client.exe")))
                 using (App iceSecond = new App(Path.Combine(buildDirectory, "Client.exe"))) {
+                    iceFirst.Wait("SC_WELCOME: Player ID="); iceSecond.Wait("SC_WELCOME: Player ID=");
+                    iceFirst.Keys("r"); iceSecond.Keys("r");
                     iceFirst.Wait("SC_SNAPSHOT: stage=3 map=20x20");
                     iceSecond.Wait("SC_SNAPSHOT: stage=3 map=20x20");
                     iceFirst.Wait("SC_STATE: hearts=3,3 result=0");
@@ -257,5 +322,174 @@ public static class NetworkIntegrationTests
         } finally {
             for (int i = apps.Count - 1; i >= 0; --i) apps[i].Dispose();
         }
+    }
+    static void MatchFlow(string directory)
+    {
+        using (App server = new App(Path.Combine(directory, "Server.exe"))) {
+            server.Wait("Server listening");
+            using (App second = new App(Path.Combine(directory, "Client.exe"))) {
+                second.Wait("SC_WELCOME: Player ID=1");
+                using (App first = new App(Path.Combine(directory, "Client.exe"))) {
+                    first.Wait("SC_WELCOME: Player ID=2");
+                    Ready(first, first, second, "r", "0,1");
+                    first.Count("SC_SNAPSHOT", 0); second.Count("SC_SNAPSHOT", 0);
+                    Ready(second, first, second, "r", "1,1");
+                    first.Wait("map=20x20 match=1"); second.Wait("map=20x20 match=1");
+                    first.Keys("lLL"); first.Wait("Queued CS_LOADED: match=1");
+                    first.Count("SC_MATCH_START", 0); second.Count("SC_MATCH_START", 0);
+                    second.Keys("l");
+                    first.Wait("SC_MATCH_START: match=1"); second.Wait("SC_MATCH_START: match=1");
+                    first.Count("SC_MATCH_START: match=1", 1); second.Count("SC_MATCH_START: match=1", 1);
+                    first.Stop();
+                }
+                second.Wait("SC_MATCH_CANCEL: match=1 reason=1");
+                using (App replacement = new App(Path.Combine(directory, "Client.exe"))) {
+                    replacement.Wait("SC_WELCOME: Player ID=2");
+                    second.Keys("r"); replacement.Keys("r");
+                    second.Wait("map=20x20 match=2"); replacement.Wait("map=20x20 match=2");
+                    second.Keys("l"); replacement.Stop();
+                }
+                second.Wait("SC_MATCH_CANCEL: match=2 reason=1");
+                second.Count("SC_MATCH_START: match=2", 0);
+                using (App replacement = new App(Path.Combine(directory, "Client.exe"))) {
+                    replacement.Wait("SC_WELCOME: Player ID=2");
+                    second.Keys("r"); replacement.Keys("r");
+                    second.Wait("map=20x20 match=3"); replacement.Wait("map=20x20 match=3");
+                    second.Keys("lll");
+                    second.Wait("SC_MATCH_CANCEL: match=3 reason=2");
+                    replacement.Wait("SC_MATCH_CANCEL: match=3 reason=2");
+                    second.Count("SC_MATCH_START: match=3", 0);
+                    second.Keys("r"); replacement.Keys("r");
+                    second.Wait("map=20x20 match=4"); replacement.Wait("map=20x20 match=4");
+                    second.Keys("l"); replacement.Keys("l");
+                    second.Wait("SC_MATCH_START: match=4"); replacement.Wait("SC_MATCH_START: match=4");
+                    second.Count("SC_MATCH_START: match=4", 1); replacement.Count("SC_MATCH_START: match=4", 1);
+                    replacement.Stop();
+                }
+                second.Stop();
+            }
+            server.Stop();
+        }
+        Console.WriteLine("PASS: one ready waits; both snapshot; duplicate/single LOADED waits; start once; loading departure/timeout and retry");
+    }
+    static void Selection(App sender, App first, App second, string key, string state)
+    {
+        int a = first.Mark, b = second.Mark;
+        sender.Keys(key);
+        first.Wait("SC_ROOM_STATE: count=2 " + state, a);
+        second.Wait("SC_ROOM_STATE: count=2 " + state, b);
+    }
+    static void SelectionFlow(string directory)
+    {
+        using (App server = new App(Path.Combine(directory, "Server.exe"))) {
+            server.Wait("Server listening");
+            using (App first = new App(Path.Combine(directory, "Client.exe"))) {
+                first.Wait("SC_WELCOME: Player ID=1");
+                using (App second = new App(Path.Combine(directory, "Client.exe"))) {
+                    second.Wait("SC_WELCOME: Player ID=2");
+                    first.Wait("map=1 colors=0,0 host=1"); second.Wait("map=1 colors=0,0 host=1");
+                    Ready(first, first, second, "r", "1,0");
+                    int a = first.Mark, b = second.Mark;
+                    first.Keys("z1"); // Same color/map must not reset ready or broadcast.
+                    first.Count("SC_ROOM_STATE", 0, a); second.Count("SC_ROOM_STATE", 0, b);
+                    Selection(second, first, second, "V", "ready=1,0 map=1 colors=0,1 host=1");
+                    Selection(first, first, second, "b", "ready=0,0 map=1 colors=2,1 host=1");
+                    Ready(second, first, second, "r", "0,1");
+                    Selection(first, first, second, "2", "ready=0,0 map=2 colors=2,1 host=1");
+                    a = first.Mark; b = second.Mark;
+                    second.Keys("3"); second.Wait("SC_ERROR: Selection denied", b);
+                    first.Count("SC_ROOM_STATE", 0, a); second.Count("SC_ROOM_STATE", 0, b);
+                    Selection(first, first, second, "3", "ready=0,0 map=3 colors=2,1 host=1");
+                    Selection(first, first, second, "1", "ready=0,0 map=1 colors=2,1 host=1");
+                    Selection(first, first, second, "2", "ready=0,0 map=2 colors=2,1 host=1");
+                    first.Keys("r"); second.Keys("r");
+                    first.Wait("SC_SNAPSHOT: stage=2 map=20x20 match=1");
+                    second.Wait("SC_SNAPSHOT: stage=2 map=20x20 match=1");
+                    a = first.Mark;
+                    first.Keys("1"); first.Wait("SC_ERROR: Selection denied", a);
+                    first.Keys("l"); second.Keys("l");
+                    first.Wait("SC_MATCH_START: match=1"); second.Wait("SC_MATCH_START: match=1");
+                    first.Stop();
+                    second.Wait("SC_MATCH_CANCEL: match=1 reason=1");
+                    using (App replacement = new App(Path.Combine(directory, "Client.exe"))) {
+                        replacement.Wait("SC_WELCOME: Player ID=1");
+                        replacement.Wait("map=2 colors=0,1 host=2");
+                        Selection(second, replacement, second, "3", "ready=0,0 map=3 colors=0,1 host=2");
+                        a = replacement.Mark;
+                        replacement.Keys("1"); replacement.Wait("SC_ERROR: Selection denied", a);
+                        replacement.Keys("r"); second.Keys("r");
+                        replacement.Wait("SC_SNAPSHOT: stage=3 map=20x20 match=2");
+                        second.Wait("SC_SNAPSHOT: stage=3 map=20x20 match=2");
+                        replacement.Keys("l"); second.Keys("l");
+                        replacement.Wait("SC_MATCH_START: match=2"); second.Wait("SC_MATCH_START: match=2");
+                        replacement.Stop();
+                    }
+                    second.Stop();
+                }
+            }
+            server.Stop();
+        }
+        Console.WriteLine("PASS: real clients synchronize selections; map/color readiness reset; no-op preserved; guest denied without disconnect; host transfer and City/Ice start");
+    }
+    static void Send(NetworkStream stream, ushort type, uint match, params byte[] payload)
+    {
+        byte[] bytes = Frame(type, match, payload);
+        stream.Write(bytes, 0, bytes.Length);
+    }
+    static void StaleLoading(string directory)
+    {
+        using (App server = new App(Path.Combine(directory, "Server.exe"))) {
+            server.Wait("Server listening");
+            using (TcpClient first = Connect()) {
+                NetworkStream a = first.GetStream();
+                Send(a, 1, 0, 0, 1, 0, 8); Receive(a, 2); Receive(a, 3);
+                using (TcpClient second = Connect()) {
+                    NetworkStream b = second.GetStream();
+                    Send(b, 1, 0, 0, 1, 0, 8); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                    // Both-ready then SELECT in one accumulated read: no loading tick in between.
+                    byte[] ready = Frame(11, 0, new byte[] {1});
+                    byte[] map = Frame(15, 0, new byte[] {1, 2});
+                    byte[] merged = new byte[ready.Length + map.Length];
+                    Buffer.BlockCopy(ready, 0, merged, 0, ready.Length);
+                    Buffer.BlockCopy(map, 0, merged, ready.Length, map.Length);
+                    a.Write(merged, 0, merged.Length);
+                    CheckRoomState(Receive(a, 3), 2, 1, 1); CheckRoomState(Receive(b, 3), 2, 1, 1);
+                    CheckRoomState(Receive(a, 3), 2, 0, 0, 2); CheckRoomState(Receive(b, 3), 2, 0, 0, 2);
+                    server.Count("Loading:", 0);
+                    Send(a, 15, 0, 1, 1); Receive(a, 3); Receive(b, 3);
+                    Console.WriteLine("PASS: actual map change clears both ready flags before loading");
+                    for (uint id = 1; id <= 2; ++id) {
+                        Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                        Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                        byte[] snapshotA = Receive(a, 6, id), snapshotB = Receive(b, 6, id);
+                        Check(Convert.ToBase64String(snapshotA) == Convert.ToBase64String(snapshotB),
+                            "Initial snapshots differ");
+                        if (id == 1) {
+                            Send(a, 12, id);
+                            Send(b, 11, 0, 0);
+                            Check(Receive(a, 14, id)[0] == 3, "Expected unready cancellation");
+                            Receive(b, 14, id);
+                            CheckRoomState(Receive(a, 3), 2, 0, 0);
+                            CheckRoomState(Receive(b, 3), 2, 0, 0);
+                            Send(b, 12, id); // Late completion while back in lobby.
+                        } else {
+                            Send(a, 12, 1); Send(a, 12, 1); // Previous attempt cannot load P1.
+                            Send(b, 12, id);
+                            server.Count("SC_MATCH_START", 0);
+                            Check(first.Available == 0 && second.Available == 0, "Stale LOADED triggered a packet");
+                            Send(a, 12, id);
+                            Check(Receive(a, 13, id).Length == 0, "Start payload not empty");
+                            Check(Receive(b, 13, id).Length == 0, "Start payload not empty");
+                            Send(a, 12, id); Send(b, 12, id);
+                            server.Count("SC_MATCH_START: match=2", 1);
+                            Check(first.Available == 0 && second.Available == 0, "Duplicate start");
+                        }
+                    }
+                }
+            }
+            server.Stop();
+        }
+        Console.WriteLine("PASS: identical snapshot bytes; canceled/stale LOADED ignored in lobby and next match; start IDs/payload/duplicates");
     }
 }

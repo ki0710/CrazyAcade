@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <vector>
 
 #pragma comment(lib, "ws2_32.lib")
@@ -20,6 +21,9 @@ constexpr unsigned short kPort = 9000;
 struct Client : Session {
     explicit Client(SOCKET socket) : Session(socket) {}
     int playerId = 0;
+    bool ready = false;
+    bool loaded = false;
+    std::uint8_t color = 0;
     bool dead = false;
     bool closing = false;
     bool writeShutdown = false;
@@ -32,27 +36,33 @@ public:
     std::vector<std::unique_ptr<Client>> clients;
     Client* slots[2] = {nullptr, nullptr};
     MapItemState mapItems;
+    enum class Phase { Lobby, Loading, Playing };
+    Phase phase = Phase::Lobby;
+    std::uint32_t matchId = 0; // Monotonic for this server lifetime; never reused.
+    Clock::time_point loadingDeadline;
 
     explicit Room(int stage = 1) {
         mapItems.stage = stage;
         if (stage == 3) init_board_Ice(mapItems.board);
+        else if (stage == 2) init_board_City(mapItems.board);
         else init_board_Forest(mapItems.board);
     }
 
     // The game loop supplies confirmed bomb hits for one completed update.
     void ResolveIceHits(const std::vector<int>& playerIds) {
-        if (mapItems.stage != 3 || mapItems.ice.result != IceResult::Playing) return;
+        if (phase != Phase::Playing || mapItems.stage != 3 || mapItems.ice.result != IceResult::Playing) return;
         bool changed = false;
         for (int playerId : playerIds) {
             if (ApplyIceHit(mapItems.ice, playerId)) changed = true;
         }
         const bool ended = FinishIceTick(mapItems.ice);
-        if (changed) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice));
-        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice));
+        if (changed) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
+        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice), matchId);
     }
 
-    void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload) {
-        if (!client.dead && !client.closing && !client.Queue(type, payload)) client.dead = true;
+    void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload,
+               std::uint32_t id = 0) {
+        if (!client.dead && !client.closing && !client.Queue(type, payload, id)) client.dead = true;
     }
     void Reject(Client& client, ErrorCode error) {
         Queue(client, PacketType::SC_ERROR, ErrorPayload(error));
@@ -60,15 +70,109 @@ public:
         client.deadline = Clock::now() + std::chrono::seconds(2);
         std::printf("SC_ERROR: %s\n", ErrorText(error));
     }
-    void Broadcast(PacketType type, const std::vector<std::uint8_t>& payload) {
-        for (auto* slot : slots) if (slot) Queue(*slot, type, payload);
+    void Broadcast(PacketType type, const std::vector<std::uint8_t>& payload, std::uint32_t id = 0) {
+        for (auto* slot : slots) if (slot) Queue(*slot, type, payload, id);
+    }
+    void Cancel(CancelReason reason) {
+        if (phase == Phase::Lobby) return;
+        phase = Phase::Lobby;
+        for (auto* slot : slots) if (slot) { slot->ready = false; slot->loaded = false; }
+        Broadcast(PacketType::SC_MATCH_CANCEL, {static_cast<std::uint8_t>(reason)}, matchId);
+        std::printf("SC_MATCH_CANCEL: match=%u reason=%u\n", unsigned(matchId), unsigned(reason));
+        BroadcastState();
+    }
+    bool BothActive() const {
+        return slots[0] && slots[1] && !slots[0]->dead && !slots[1]->dead &&
+            !slots[0]->closing && !slots[1]->closing;
+    }
+    void Tick() {
+        if (phase == Phase::Lobby && BothActive() && slots[0]->ready && slots[1]->ready) {
+            // Refuse exhaustion instead of reusing an old match identity.
+            if (matchId == (std::numeric_limits<std::uint32_t>::max)()) return;
+            const int stage = mapItems.stage;
+            mapItems = MapItemState{};
+            mapItems.stage = stage;
+            if (stage == 3) init_board_Ice(mapItems.board);
+            else if (stage == 2) init_board_City(mapItems.board);
+            else init_board_Forest(mapItems.board);
+            const auto snapshot = EncodeMapItemSnapshot(mapItems);
+            if (snapshot.empty()) {
+                slots[0]->ready = slots[1]->ready = false;
+                BroadcastState();
+                return;
+            }
+            ++matchId;
+            phase = Phase::Loading;
+            slots[0]->loaded = slots[1]->loaded = false;
+            loadingDeadline = Clock::now() + std::chrono::seconds(kLoadingTimeoutSeconds);
+            Broadcast(PacketType::SC_SNAPSHOT, snapshot, matchId);
+            if (stage == 3) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
+            std::printf("Loading: match=%u\n", unsigned(matchId));
+        }
+        if (phase != Phase::Loading) return;
+        if (!BothActive()) { Cancel(CancelReason::PeerLeft); return; }
+        if (Clock::now() >= loadingDeadline) { Cancel(CancelReason::Timeout); return; }
+        if (slots[0]->loaded && slots[1]->loaded) {
+            phase = Phase::Playing; // Exactly one transition/broadcast, including duplicate LOADED.
+            Broadcast(PacketType::SC_MATCH_START, {}, matchId);
+            std::printf("SC_MATCH_START: match=%u\n", unsigned(matchId));
+        }
+    }
+    int HostId() const {
+        // clients retains TCP accept order, independent of reused player slots.
+        for (const auto& client : clients)
+            if (client->playerId && !client->dead && !client->closing) return client->playerId;
+        return 0;
     }
     void BroadcastState() {
         const auto count = static_cast<std::uint8_t>((slots[0] != nullptr) + (slots[1] != nullptr));
-        Broadcast(PacketType::SC_ROOM_STATE, {count});
-        std::printf("SC_ROOM_STATE: count=%u\n", unsigned(count));
+        const auto first = static_cast<std::uint8_t>(slots[0] && slots[0]->ready);
+        const auto second = static_cast<std::uint8_t>(slots[1] && slots[1]->ready);
+        const auto map = static_cast<std::uint8_t>(mapItems.stage);
+        const auto color1 = slots[0] ? slots[0]->color : std::uint8_t(0);
+        const auto color2 = slots[1] ? slots[1]->color : std::uint8_t(0);
+        const auto host = static_cast<std::uint8_t>(HostId());
+        Broadcast(PacketType::SC_ROOM_STATE, {count, first, second, map, color1, color2, host});
+        std::printf("SC_ROOM_STATE: count=%u ready=%u,%u map=%u colors=%u,%u host=%u\n", unsigned(count),
+            unsigned(first), unsigned(second), unsigned(map), unsigned(color1), unsigned(color2), unsigned(host));
     }
     void Handle(Client& client, const Packet& packet) {
+        if (packet.header.packetType == PacketType::CS_SELECT) {
+            if (client.playerId < 1 || client.playerId > 2 ||
+                slots[client.playerId - 1] != &client || packet.header.matchId != 0 ||
+                !ValidSelectPayload(packet.payload)) {
+                Reject(client, ErrorCode::BadRequest);
+                return;
+            }
+            const bool map = packet.payload[0] == static_cast<std::uint8_t>(SelectKind::Map);
+            if (phase != Phase::Lobby || (map && client.playerId != HostId())) {
+                Queue(client, PacketType::SC_ERROR, ErrorPayload(ErrorCode::SelectionDenied));
+                return;
+            }
+            const auto value = packet.payload[1];
+            if (map && mapItems.stage != value) {
+                mapItems.stage = value;
+                for (auto* slot : slots) if (slot) slot->ready = false;
+                BroadcastState();
+            } else if (!map && client.color != value) {
+                client.color = value;
+                client.ready = false;
+                BroadcastState();
+            }
+            return;
+        }
+        if (packet.header.packetType == PacketType::CS_LOADED) {
+            if (client.playerId < 1 || client.playerId > 2 ||
+                slots[client.playerId - 1] != &client || !packet.payload.empty() ||
+                packet.header.matchId == 0 || packet.header.matchId > matchId) {
+                Reject(client, ErrorCode::BadRequest);
+                return;
+            }
+            // Ignore late replies for canceled/started matches and previous attempts.
+            if (phase == Phase::Loading && packet.header.matchId == matchId &&
+                Clock::now() < loadingDeadline) client.loaded = true;
+            return;
+        }
         if (packet.header.packetType == PacketType::CS_INPUT) {
             InputData input;
             if (client.playerId < 1 || client.playerId > 2 || packet.header.matchId != 0 ||
@@ -79,6 +183,22 @@ public:
             // Input transport test only: no Player/Board movement or broadcast here.
             std::printf("Player %d -> %s, sequence=%u\n", client.playerId,
                 InputDirectionText(input.directionMask), static_cast<unsigned>(input.sequence));
+            return;
+        }
+        if (packet.header.packetType == PacketType::CS_READY) {
+            bool ready;
+            if (client.playerId < 1 || client.playerId > 2 ||
+                slots[client.playerId - 1] != &client || packet.header.matchId != 0 ||
+                !ReadReadyPayload(packet.payload, ready)) {
+                Reject(client, ErrorCode::BadRequest);
+                return;
+            }
+            if (client.ready != ready) {
+                if (phase == Phase::Loading && !ready) { Cancel(CancelReason::Unready); return; }
+                if (phase != Phase::Lobby) return;
+                client.ready = ready;
+                BroadcastState();
+            }
             return;
         }
         if (client.playerId != 0 || packet.header.matchId != 0 ||
@@ -93,18 +213,12 @@ public:
         }
         int index = !slots[0] ? 0 : !slots[1] ? 1 : -1;
         if (index < 0) { Reject(client, ErrorCode::RoomFull); return; }
+        client.ready = false;
         client.playerId = index + 1;
         slots[index] = &client;
         Queue(client, PacketType::SC_WELCOME, {static_cast<std::uint8_t>(client.playerId)});
         std::printf("SC_WELCOME: Player ID=%d\n", client.playerId);
         BroadcastState();
-        if (slots[0] && slots[1]) {
-            const auto snapshot = EncodeMapItemSnapshot(mapItems);
-            Broadcast(PacketType::SC_SNAPSHOT, snapshot);
-            if (mapItems.stage == 3) {
-                Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice));
-            }
-        }
     }
     void Read(Client& client) {
         const auto result = ReceiveOnce(client.socket, client.received);
@@ -128,6 +242,7 @@ public:
                 if (!client->dead || client->playerId == 0) continue;
                 const auto id = static_cast<std::uint8_t>(client->playerId);
                 slots[id - 1] = nullptr;
+                Cancel(CancelReason::PeerLeft);
                 client->playerId = 0;
                 removed = true;
                 std::printf("Player %u disconnected; slot released\n", unsigned(id));
@@ -215,6 +330,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             room.RemoveDead();
+            room.Tick();
             if (FD_ISSET(listener, &readable)) {
                 sockaddr_in peer = {};
                 int size = sizeof(peer);

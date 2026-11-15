@@ -25,7 +25,12 @@ bool IsValidPacketType(PacketType type) {
     case PacketType::SC_EVENT:
     case PacketType::CS_INPUT:
     case PacketType::SC_STATE:
-    case PacketType::SC_MATCH_END: return true;
+    case PacketType::SC_MATCH_END:
+    case PacketType::CS_READY:
+    case PacketType::CS_LOADED:
+    case PacketType::SC_MATCH_START:
+    case PacketType::SC_MATCH_CANCEL:
+    case PacketType::CS_SELECT: return true;
     default: return false;
     }
 }
