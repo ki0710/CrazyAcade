@@ -301,6 +301,7 @@ public static class NetworkIntegrationTests
             final.Wait("SC_WELCOME: Player ID=1");
             server.Stop(); final.Wait("Server disconnected."); final.Exited(0);
             Console.WriteLine("PASS: normal server shutdown with a connected client");
+            ConcurrentReadyAndShutdown(buildDirectory);
             MatchFlow(buildDirectory);
             SelectionFlow(buildDirectory);
             StaleLoading(buildDirectory);
@@ -322,6 +323,31 @@ public static class NetworkIntegrationTests
         } finally {
             for (int i = apps.Count - 1; i >= 0; --i) apps[i].Dispose();
         }
+    }
+    static void ConcurrentReadyAndShutdown(string directory)
+    {
+        using (App server = new App(Path.Combine(directory, "Server.exe"))) {
+            server.Wait("Server listening");
+            using (App first = new App(Path.Combine(directory, "Client.exe")))
+            using (App second = new App(Path.Combine(directory, "Client.exe"))) {
+                first.Wait("SC_WELCOME: Player ID="); second.Wait("SC_WELCOME: Player ID=");
+                using (ManualResetEvent go = new ManualResetEvent(false)) {
+                    Thread a = new Thread(delegate() { go.WaitOne(); first.Keys("r"); });
+                    Thread b = new Thread(delegate() { go.WaitOne(); second.Keys("r"); });
+                    a.Start(); b.Start(); go.Set(); a.Join(); b.Join();
+                }
+                first.Wait("map=20x20 match=1"); second.Wait("map=20x20 match=1");
+                first.Keys("lll"); second.Keys("lll");
+                first.Wait("SC_MATCH_START: match=1"); second.Wait("SC_MATCH_START: match=1");
+                server.Count("Loading: match=1", 1);
+                server.Count("SC_MATCH_START: match=1", 1);
+                first.Count("SC_MATCH_START: match=1", 1); second.Count("SC_MATCH_START: match=1", 1);
+                server.Stop();
+                first.Wait("Server disconnected."); second.Wait("Server disconnected.");
+                first.Exited(0); second.Exited(0);
+            }
+        }
+        Console.WriteLine("PASS: concurrent READY starts once; shutdown joins receivers with two clients");
     }
     static void MatchFlow(string directory)
     {
