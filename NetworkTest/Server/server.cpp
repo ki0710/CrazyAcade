@@ -11,6 +11,11 @@
 #include <memory>
 #include <limits>
 #include <vector>
+#include <atomic>
+#include <deque>
+#include <exception>
+#include <mutex>
+#include <thread>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -18,8 +23,91 @@ namespace {
 using namespace network;
 using Clock = std::chrono::steady_clock;
 constexpr unsigned short kPort = 9000;
+struct ReceiveEvent {
+    std::uint64_t connection;
+    IoStatus status;
+    Packet packet;
+};
+class ReceiveQueue {
+public:
+    bool Push(ReceiveEvent event, const std::atomic<bool>& stop) {
+        // Bounded backpressure; never hold the lock while waiting for consumers.
+        while (!stop.load()) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (events_.size() < 256) {
+                    events_.push_back(std::move(event));
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+    }
+    std::deque<ReceiveEvent> Take() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::deque<ReceiveEvent> result;
+        result.swap(events_);
+        return result;
+    }
+private:
+    std::mutex mutex_;
+    std::deque<ReceiveEvent> events_;
+};
 struct Client : Session {
-    explicit Client(SOCKET socket) : Session(socket) {}
+    Client(SOCKET socket, std::uint64_t id, ReceiveQueue& queue)
+        : Session(socket), connection(id), events(queue) {}
+    ~Client() {
+        stop.store(true);
+        shutdown(socket, SD_BOTH);
+        if (receiver.joinable()) receiver.join();
+        // Session closes the socket once, after the receiver has exited.
+    }
+    void StartReceiver() { receiver = std::thread(&Client::Receive, this); }
+    void Receive() {
+        ReceiveBuffer buffer;
+        bool draining = false;
+        while (!stop.load()) {
+            fd_set readable;
+            FD_ZERO(&readable);
+            FD_SET(socket, &readable);
+            timeval timeout = {0, 100000};
+            const int selected = select(0, &readable, nullptr, nullptr, &timeout);
+            if (stop.load()) return;
+            if (selected == 0) continue;
+            if (selected == SOCKET_ERROR) {
+                events.Push({connection, IoStatus::SocketError, {}}, stop);
+                return;
+            }
+            const auto result = ReceiveOnce(socket, buffer);
+            if (result.status == IoStatus::WouldBlock) continue;
+            if (result.status == IoStatus::Progress) {
+                if (draining) { buffer.Reset(); continue; }
+                Packet packet;
+                for (;;) {
+                    const auto extracted = buffer.TryExtract(packet);
+                    if (extracted == ExtractResult::NeedMoreData) break;
+                    if (extracted == ExtractResult::InvalidData) {
+                        if (!events.Push({connection, IoStatus::InvalidData, {}}, stop)) return;
+                        draining = true;
+                        buffer.Reset();
+                        break;
+                    }
+                    if (!events.Push({connection, IoStatus::Progress, std::move(packet)}, stop)) return;
+                }
+                continue;
+            }
+            if (!events.Push({connection, result.status, {}}, stop)) return;
+            if (result.status != IoStatus::InvalidData) return;
+            // Drain malformed requests until EOF so the loop can send SC_ERROR.
+            draining = true;
+            buffer.Reset();
+        }
+    }
+    const std::uint64_t connection;
+    ReceiveQueue& events;
+    std::atomic<bool> stop{false};
+    std::thread receiver;
     int playerId = 0;
     bool ready = false;
     bool loaded = false;
@@ -33,6 +121,8 @@ struct Client : Session {
 
 class Room {
 public:
+    ReceiveQueue receiveEvents; // Destroyed after clients and their threads.
+    std::uint64_t nextConnection = 1;
     std::vector<std::unique_ptr<Client>> clients;
     Client* slots[2] = {nullptr, nullptr};
     MapItemState mapItems;
@@ -220,17 +310,20 @@ public:
         std::printf("SC_WELCOME: Player ID=%d\n", client.playerId);
         BroadcastState();
     }
-    void Read(Client& client) {
-        const auto result = ReceiveOnce(client.socket, client.received);
-        if (result.status == IoStatus::WouldBlock) return;
-        if (result.status == IoStatus::InvalidData) { Reject(client, ErrorCode::BadRequest); return; }
-        if (result.status != IoStatus::Progress) { client.dead = true; return; }
-        Packet packet;
-        while (!client.closing && !client.dead) {
-            const auto extracted = client.received.TryExtract(packet);
-            if (extracted == ExtractResult::NeedMoreData) break;
-            if (extracted == ExtractResult::InvalidData) { Reject(client, ErrorCode::BadRequest); break; }
-            Handle(client, packet);
+    void ConsumeReceived() {
+        for (auto& event : receiveEvents.Take()) {
+            const auto found = std::find_if(clients.begin(), clients.end(),
+                [&](const std::unique_ptr<Client>& c) { return c->connection == event.connection; });
+            if (found == clients.end() || (*found)->dead) continue;
+            auto& client = **found;
+            if (event.status == IoStatus::Progress) {
+                if (!client.closing) Handle(client, event.packet);
+            } else if (event.status == IoStatus::InvalidData) {
+                if (!client.closing) Reject(client, ErrorCode::BadRequest);
+            } else {
+                client.readClosed = true;
+                if (!client.closing || event.status != IoStatus::Closed) client.dead = true;
+            }
         }
     }
     void RemoveDead() {
@@ -292,30 +385,19 @@ int main(int argc, char* argv[]) {
             // Bound unapproved/rejected sockets as well as the two player slots.
             if (room.clients.size() < 16) FD_SET(listener, &readable);
             for (const auto& client : room.clients) {
-                if (!client->readClosed) FD_SET(client->socket, &readable);
+
                 if (client->WantsWrite()) FD_SET(client->socket, &writable);
             }
             timeval timeout = {0, 100000};
-            if (select(0, &readable, &writable, nullptr, &timeout) == SOCKET_ERROR) {
+            const bool haveSockets = readable.fd_count || writable.fd_count;
+            if (!haveSockets) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (haveSockets && select(0, &readable, &writable, nullptr, &timeout) == SOCKET_ERROR) {
                 std::printf("select failed: %d\n", WSAGetLastError());
                 exitCode = 1;
                 break;
             }
-            // Read existing peers and free departed slots before accepting/approving new ones.
+            room.ConsumeReceived();
             for (auto& client : room.clients) {
-                if (FD_ISSET(client->socket, &readable)) {
-                    if (!client->closing) room.Read(*client);
-                    else {
-                        // Drain requests already in flight during rejection. Closing a
-                        // socket with unread data can reset TCP and lose SC_ERROR.
-                        client->received.Reset();
-                        const auto result = ReceiveOnce(client->socket, client->received);
-                        client->received.Reset();
-                        if (result.status == IoStatus::Closed) client->readClosed = true;
-                        else if (result.status != IoStatus::Progress && result.status != IoStatus::WouldBlock)
-                            client->dead = true;
-                    }
-                }
                 if (!client->dead && FD_ISSET(client->socket, &writable) && !client->Flush())
                     client->dead = true;
                 if (!client->closing && client->playerId == 0 && Clock::now() >= client->deadline)
@@ -338,8 +420,13 @@ int main(int argc, char* argv[]) {
                 if (socket != INVALID_SOCKET) {
                     if (!SetNonblocking(socket)) closesocket(socket);
                     else {
-                        std::unique_ptr<Client> client(new Client(socket));
+                        std::unique_ptr<Client> client(new Client(socket, room.nextConnection++, room.receiveEvents));
                         if (room.slots[0] && room.slots[1]) room.Reject(*client, ErrorCode::RoomFull);
+                        try { client->StartReceiver(); }
+                        catch (const std::exception& error) {
+                            std::printf("Receive thread failed: %s\n", error.what());
+                            continue;
+                        }
                         room.clients.push_back(std::move(client));
                     }
                 } else if (WSAGetLastError() != WSAEWOULDBLOCK) {
