@@ -58,6 +58,8 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         match.started = false;
         std::printf("SC_SNAPSHOT: stage=%d map=%dx%d match=%u\n", mapItems.stage, MAP_TILES, MAP_TILES,
             unsigned(match.id));
+        if (mapItems.stage == 1)
+            std::printf("SC_SNAPSHOT: apples=%d,%d\n", mapItems.forest.carried[0], mapItems.forest.carried[1]);
         return true;
     case PacketType::SC_MATCH_START:
         if (!playerId || match.id != packet.header.matchId || match.started || !payload.empty()) return false;
@@ -78,6 +80,10 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
     case PacketType::SC_STATE:
     case PacketType::SC_MATCH_END:
         if (!playerId || match.id != packet.header.matchId || !ApplyMapItemPacket(packet, mapItems)) return false;
+        if (mapItems.stage == 1) {
+            std::printf("SC_STATE: apples=%d,%d\n", mapItems.forest.carried[0], mapItems.forest.carried[1]);
+            return true;
+        }
         std::printf("%s: hearts=%d,%d result=%d\n",
             packet.header.packetType == PacketType::SC_STATE ? "SC_STATE" : "SC_MATCH_END",
             mapItems.ice.hearts[0], mapItems.ice.hearts[1], static_cast<int>(mapItems.ice.result));

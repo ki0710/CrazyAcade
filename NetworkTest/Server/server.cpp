@@ -150,6 +150,30 @@ public:
         if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice), matchId);
     }
 
+    // The combat caller supplies newly confirmed tree owners and player hits.
+    // Tree awards precede damage, matching the game's explosion/hit order.
+    void ResolveForestChanges(const std::vector<int>& treeOwners, const std::vector<int>& playerIds) {
+        if (phase != Phase::Playing || mapItems.stage != 1) return;
+        bool changed = false;
+        for (int playerId : treeOwners) {
+            if (playerId < 1 || playerId > 2) continue;
+            int& carried = mapItems.forest.carried[playerId - 1];
+            if (CollectForestApple(carried)) {
+                Broadcast(PacketType::SC_EVENT, EncodeForestAppleEvent(ForestAppleEvent::Gained, playerId, carried), matchId);
+                changed = true;
+            }
+        }
+        for (int playerId : playerIds) {
+            if (playerId < 1 || playerId > 2) continue;
+            int& carried = mapItems.forest.carried[playerId - 1];
+            if (LoseForestApples(carried)) {
+                Broadcast(PacketType::SC_EVENT, EncodeForestAppleEvent(ForestAppleEvent::Lost, playerId, carried), matchId);
+                changed = true;
+            }
+        }
+        if (changed) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
+    }
+
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload,
                std::uint32_t id = 0) {
         if (!client.dead && !client.closing && !client.Queue(type, payload, id)) client.dead = true;

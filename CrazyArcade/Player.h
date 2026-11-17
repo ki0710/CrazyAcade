@@ -5,6 +5,7 @@
 
 
 #include"Board.h"
+#include "ForestState.h"
 class Player {
     int x, y;           // Last completed map cell: x=column, y=row.
     int destX, destY;   // Target cell of the current tile movement.
@@ -63,6 +64,8 @@ public:
     void SetBomb_distance(int value) { bomb_distance = value; }
     void SetMaxBomb(int value) { maxBomb = value; }
 	void SetCurrentApple(int value) { currrentApple = value; }
+    bool CollectApple() { return CollectForestApple(currrentApple); }
+    bool LoseApples() { return LoseForestApples(currrentApple); }
 	void SetSelectedCharacter(int value) { selected_character = value; }
 	void SetColor(int value) { color = value; }
 	void SetMoveCount(int value) { move_cnt = value; }

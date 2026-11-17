@@ -45,7 +45,7 @@ connect; subsequent communication uses nonblocking sockets.
 
 ## TCP movement input test
 
-Build the server and clients together for protocol version **8**; version 2
+Build the server and clients together for protocol version **9**; version 2
 binaries are rejected by the existing HELLO version check. Existing packet
 numbers 1 through 7 are unchanged. The server address remains 127.0.0.1:9000.
 
@@ -93,7 +93,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (8) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (9) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -122,7 +122,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 8. Once both
+Build the server and both clients together for protocol version 9. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -208,7 +208,7 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 8. Versions 1 through 7
+Build both applications together for protocol version 9. Versions 1 through 8
 are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
@@ -304,7 +304,7 @@ console task does not change game rendering or the MapItemSync snapshot payload.
 Invalid lengths, kinds, values, matchId, or unapproved senders receive the existing
 BadRequest and disconnect. A valid request without map permission, or outside
 Lobby, receives SC_ERROR code 5 (Selection denied) without disconnecting or
-changing room state. Both server and client use protocol version 8 so version-7
+changing room state. Both server and client use protocol version 9 so version-7
 clients cannot interpret the expanded ROOM_STATE accidentally.
 
 After WELCOME, use these keys without Enter (letters accept either case):
@@ -328,3 +328,28 @@ also exercises clearing both flags before loading. As with other live TCP tests,
 one write alone does not guarantee a specific receive segmentation. Unit tests
 cover all 256 value/kind bytes, bad lengths, ROOM_STATE bounds, exact CS_SELECT
 wire bytes, and every two-part frame split.
+
+
+## Forest carried apples (protocol 9)
+
+Forest snapshots append two big-endian uint32 carried-apple counts (P1, P2),
+making the payload 1619 bytes. Counts are nonnegative values representable by
+the game's int. Forest SC_STATE carries these same eight bytes. City and ice
+payloads keep their existing layouts; rebuild the server and both clients.
+
+SC_EVENT kind 3 means an apple was gained and kind 4 means all carried apples
+were lost. Both contain `[kind, playerId, carried uint32]`, six bytes total.
+Clients apply the server's absolute count, rather than adding an event twice.
+
+The game and server use the same CollectForestApple/LoseForestApples rules.
+A new tree hit gives its bomb owner one apple immediately, using the existing
+bomb direction flags to avoid repeated awards. Own/opponent hits clear only
+the victim's carried count; they do not transfer apples or change basket totals
+or bomb capacity. Existing basket handling is not changed in this work.
+
+The combat loop calls Room::ResolveForestChanges with newly confirmed tree
+owners and newly hit players for one update, after deduplicating each bomb's
+tree directions/player hits. The room applies gains before losses, sends the
+related events and then the final carried counts. It only runs during forest
+play. The current console server supplies loading/start and initial counts;
+the combat caller still supplies confirmed hits, as for ResolveIceHits.

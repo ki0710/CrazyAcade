@@ -141,6 +141,7 @@
     <ClInclude Include="Board.h" />
     <ClInclude Include="BoardRender.h" />
     <ClInclude Include="IceState.h" />
+    <ClInclude Include="ForestState.h" />
     <ClInclude Include="Bomb.h" />
     <ClInclude Include="CrazyArcade.h" />
     <ClInclude Include="framework.h" />

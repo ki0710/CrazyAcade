@@ -45,6 +45,9 @@
     <ClInclude Include="IceState.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="ForestState.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="Bomb.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>

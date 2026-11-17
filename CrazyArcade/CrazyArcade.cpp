@@ -355,7 +355,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                     p1.SetIsHit(true);
                     if (selected_stage == 1) {
-                        p1.SetCurrentApple(0);
+                        p1.LoseApples();
                     }
                     else if (selected_stage == 2) {
                         p1currentTime -= 2;
@@ -383,7 +383,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (selected_stage == 1) {
 							//스테이지 1 충돌 처리
                             if (p2.GetCurrentApple() > 0) {
-                                p2.SetCurrentApple(0);
+                                p2.LoseApples();
                             }
                             p1bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 2와 충돌한 경우
                         }
@@ -420,7 +420,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                     p2.SetIsHit(true);
                     if (selected_stage == 1) {
-                        p2.SetCurrentApple(0);
+                        p2.LoseApples();
                     }
                     else if (selected_stage == 2) {
                         p2currentTime -= 2;
@@ -450,7 +450,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             if (selected_stage == 1) {
                                 //스테이지 1 충돌 처리
                                 if (p1.GetCurrentApple() > 0) {
-                                    p1.SetCurrentApple(0);
+                                    p1.LoseApples();
                                 }
                                 p2bombs.data()[i].SetIsCollisionPlayer(true); // 플레이어 1과 충돌한 경우
                             }

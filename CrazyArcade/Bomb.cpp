@@ -94,7 +94,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionLeft()) {
                 bomb.SetIsCollisionLeft(true);
                 bomb.SetReachLeft(j + 1);
-                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->CollectApple();
             }
         }
     }
@@ -113,7 +113,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionRight()) {
                 bomb.SetIsCollisionRight(true);
                 bomb.SetReachRight(j + 1);
-                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->CollectApple();
             }
         }
     }
@@ -132,7 +132,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionUp()) {
                 bomb.SetIsCollisionUp(true);
                 bomb.SetReachUp(j + 1);
-                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->CollectApple();
             }
         }
     }
@@ -151,7 +151,7 @@ void update_BombExplosion(Bomb& bomb, Board board[MAP_TILES][MAP_TILES], Player*
             if (!bomb.GetIsCollisionDown()) {
                 bomb.SetIsCollisionDown(true);
                 bomb.SetReachDown(j + 1);
-                if (isForest) player->SetCurrentApple(player->GetCurrentApple() + 1);
+                if (isForest) player->CollectApple();
             }
         }
     }
