@@ -4,7 +4,7 @@
 #include"Train.h"
 
 
-#include"Board.h"
+#include "MovementRules.h"
 #include "ForestState.h"
 class Player {
     int x, y;           // Last completed map cell: x=column, y=row.
@@ -86,7 +86,6 @@ public:
 
    //이동 관리 함수
 constexpr int DIR_NONE = -1;
-bool CanMoveTo(int x, int y, const Board board[MAP_TILES][MAP_TILES]);
 void HandlePlayerMovement(Player& player, int direction, const Board board[MAP_TILES][MAP_TILES]);
 // moveAmount is the movement in cells per update; the caller keeps speed / 8.0f.
 void UpdatePlayerPosition(Player& player, float moveAmount);

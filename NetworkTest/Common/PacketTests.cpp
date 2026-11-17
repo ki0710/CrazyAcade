@@ -1,6 +1,7 @@
 // Standalone deterministic tests. Do not add this file to a game target.
 #include "SocketUtils.h"
 #include "Protocol.h"
+#include "PlayerMovement.h"
 #include <algorithm>
 #include <cassert>
 #include <iostream>
@@ -40,8 +41,76 @@ int FakeLastError() { return lastError; }
 #undef recv
 #undef WSAGetLastError
 
+static void TestPlayerMovement() {
+    using namespace network;
+    Board board[MAP_TILES][MAP_TILES]{};
+    MovingPlayer p1, p2;
+    p1.position.cell = p1.position.target = PlayerStartCell(3, 1);
+    p2.position.cell = p2.position.target = PlayerStartCell(3, 2);
+    assert(p1.position.cell.x == 6 && p1.position.cell.y == 5);
+    assert(p2.position.cell.x == 13 && p2.position.cell.y == 5);
+    assert(p1.AcceptInput({kInputRight, 1}));
+    assert(p1.Step(board, 1.0f) && p1.position.progress == 250);
+    assert(p1.AcceptInput({kInputDown, 2}));
+    assert(!p1.AcceptInput({kInputLeft, 2}) && !p1.AcceptInput({kInputUp, 1}));
+    for (int i = 0; i < 4; ++i) assert(p1.Step(board, 1.0f));
+    assert(p1.position.cell.x == 7 && p1.position.cell.y == 5 && p1.position.progress == 0);
+    assert(p1.Step(board, 1.0f) && p1.position.target.y == 6 && p1.position.facing == kInputDown);
+    assert(p1.AcceptInput({kInputNone, 3}));
+    for (int i = 0; i < 4; ++i) assert(p1.Step(board, 1.0f));
+    assert(!p1.Step(board, 1.0f) && p1.position.cell.y == 6);
+    assert(p2.AcceptInput({kInputLeft, 1}));
+    for (int i = 0; i < 10; ++i) assert(p2.Step(board, 1.0f));
+    assert(p2.position.cell.x == 11 && p2.position.cell.y == 5 && p1.position.cell.x == 7);
+    assert(p2.AcceptInput({kInputUp, 2}));
+    board[4][11].obstacle = 1;
+    assert(!p2.Step(board, 1.0f));
+    board[4][11].obstacle = 9;
+    assert(!p2.Step(board, 1.0f));
+    board[4][11] = {0, 0, 0, 3}; // An item alone does not block movement.
+    for (int i = 0; i < 5; ++i) assert(p2.Step(board, 1.0f));
+    assert(p2.position.cell.y == 4);
+    const GridCell edges[] = {{0, 0}, {19, 19}};
+    for (GridCell cell : edges) {
+        MovingPlayer edge;
+        edge.position.cell = edge.position.target = cell;
+        assert(edge.AcceptInput({cell.x == 0 ? kInputLeft : kInputRight, 1}));
+        assert(!edge.Step(board, 1.0f));
+        assert(edge.AcceptInput({cell.y == 0 ? kInputUp : kInputDown, 2}));
+        assert(!edge.Step(board, 1.0f));
+    }
+
+    assert(p2.Step(board, 1.5f)); // Encode an in-flight position with positive progress.
+    const PlayerFrame frame{0x01020304, {p1.position, p2.position}};
+    const auto encoded = EncodePlayerState(frame);
+    assert(encoded.size() == 18 && encoded[0] == 1 && encoded[3] == 4);
+    assert(encoded[4] == 7 && encoded[5] == 6 && encoded[11] == 11 && encoded[12] == 4);
+    PlayerFrame decoded;
+    assert(ReadPlayerState(encoded, decoded) && EncodePlayerState(decoded) == encoded);
+    auto bad = encoded;
+    bad.push_back(0);
+    assert(!ReadPlayerState(bad, decoded));
+    bad = encoded; bad.pop_back();
+    assert(!ReadPlayerState(bad, decoded));
+    bad = encoded; bad[4] = MAP_TILES;
+    assert(!ReadPlayerState(bad, decoded));
+    bad = encoded; bad[17] = kInputRight; // Inconsistent target and facing.
+    assert(!ReadPlayerState(bad, decoded));
+    bad = encoded; bad[16] = 255; bad[15] = 255;
+    assert(!ReadPlayerState(bad, decoded));
+    assert(EncodePlayerState(decoded) == encoded); // Invalid frames cannot replace state.
+    std::vector<std::uint8_t> wire;
+    assert(EncodePacket(PacketType::SC_PLAYER_STATE, 3, encoded, wire));
+    PacketHeader header;
+    assert(DecodeHeader(wire.data(), wire.size(), header) &&
+           header.matchId == 3 && header.packetType == PacketType::SC_PLAYER_STATE);
+    assert(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 10}));
+    std::cout << "Server movement rules and SC_PLAYER_STATE wire tests passed.\n";
+}
+
 int main() {
     using namespace network;
+    TestPlayerMovement();
     for (PacketType type : {PacketType::CS_LOADED, PacketType::SC_MATCH_START, PacketType::SC_MATCH_CANCEL}) {
         const std::vector<std::uint8_t> payload = type == PacketType::SC_MATCH_CANCEL
             ? std::vector<std::uint8_t>{2} : std::vector<std::uint8_t>{};

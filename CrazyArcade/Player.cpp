@@ -157,11 +157,6 @@ int Player::collision_train(Player* player, Train& train, Board board[MAP_TILES]
 }
 
 
-bool CanMoveTo(int x, int y, const Board board[MAP_TILES][MAP_TILES]) {
-    return x >= 0 && x < MAP_TILES && y >= 0 && y < MAP_TILES &&
-        board[y][x].obstacle == 0;
-}
-
 void HandlePlayerMovement(Player& player, int direction, const Board board[MAP_TILES][MAP_TILES]) {
     if (!player.IsStopped()) return;
 

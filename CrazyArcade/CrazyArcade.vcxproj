@@ -138,6 +138,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="MovementRules.h" />
+    <ClInclude Include="OnlineConnection.h" />
     <ClInclude Include="Board.h" />
     <ClInclude Include="BoardRender.h" />
     <ClInclude Include="IceState.h" />
@@ -155,6 +157,10 @@
     <ClInclude Include="Train.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="OnlineConnection.cpp" />
+    <ClCompile Include="..\NetworkTest\Common\Packet.cpp" />
+    <ClCompile Include="..\NetworkTest\Common\SocketUtils.cpp" />
+    <ClCompile Include="..\NetworkTest\Common\MapItemSync.cpp" />
     <ClCompile Include="Board.cpp" />
     <ClCompile Include="BoardRender.cpp" />
     <ClCompile Include="IceState.cpp" />

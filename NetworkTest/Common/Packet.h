@@ -26,7 +26,8 @@ enum class PacketType : std::uint16_t {
     CS_LOADED = 12,
     SC_MATCH_START = 13,
     SC_MATCH_CANCEL = 14,
-    CS_SELECT = 15
+    CS_SELECT = 15,
+    SC_PLAYER_STATE = 16
 };
 
 // Host-order values only. Never transmit sizeof(PacketHeader) bytes.

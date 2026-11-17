@@ -2,6 +2,7 @@
 #include "../Common/Protocol.h"
 #include "../Common/ConsoleStop.h"
 #include "../Common/MapItemSync.h"
+#include "../Common/PlayerMovement.h"
 #include <ws2tcpip.h>
 #include <chrono>
 #include <cstdio>
@@ -26,12 +27,13 @@ struct Match {
     std::uint32_t id = 0;
     std::uint32_t previous = 0;
     bool started = false;
+    PlayerFrame players;
 };
 bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& mapItems, Match& match) {
     const auto type = packet.header.packetType;
     const bool gamePacket = type == PacketType::SC_SNAPSHOT || type == PacketType::SC_MATCH_START ||
         type == PacketType::SC_MATCH_CANCEL || type == PacketType::SC_STATE ||
-        type == PacketType::SC_MATCH_END || type == PacketType::SC_EVENT;
+        type == PacketType::SC_MATCH_END || type == PacketType::SC_EVENT || type == PacketType::SC_PLAYER_STATE;
     if (gamePacket ? packet.header.matchId == 0 : packet.header.matchId != 0) return false;
     const auto& payload = packet.payload;
     switch (packet.header.packetType) {
@@ -56,6 +58,7 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
             !ApplyMapItemPacket(packet, mapItems)) return false;
         match.id = packet.header.matchId;
         match.started = false;
+        match.players = PlayerFrame{};
         std::printf("SC_SNAPSHOT: stage=%d map=%dx%d match=%u\n", mapItems.stage, MAP_TILES, MAP_TILES,
             unsigned(match.id));
         if (mapItems.stage == 1)
@@ -77,6 +80,12 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         return true;
     case PacketType::SC_EVENT:
         return playerId && match.id == packet.header.matchId && ApplyMapItemPacket(packet, mapItems);
+    case PacketType::SC_PLAYER_STATE: {
+        PlayerFrame frame;
+        if (!match.started || match.id != packet.header.matchId || !ReadPlayerState(payload, frame)) return false;
+        if (frame.tick > match.players.tick) match.players = frame;
+        return true;
+    }
     case PacketType::SC_STATE:
     case PacketType::SC_MATCH_END:
         if (!playerId || match.id != packet.header.matchId || !ApplyMapItemPacket(packet, mapItems)) return false;
@@ -182,7 +191,8 @@ int main(int argc, char* argv[]) {
                 std::uint8_t directionMask;
                 if (!playerId || !KeyDirection(key, directionMask)) continue;
                 if (sequence == (std::numeric_limits<std::uint32_t>::max)() ||
-                    !session.Queue(PacketType::CS_INPUT, InputPayload(directionMask, sequence + 1))) {
+                    !session.Queue(PacketType::CS_INPUT, InputPayload(directionMask, sequence + 1),
+                                   match.started ? match.id : 0)) {
                     std::printf("Input queue failed or sequence exhausted.\n");
                     exitCode = 1; running = false; break;
                 }

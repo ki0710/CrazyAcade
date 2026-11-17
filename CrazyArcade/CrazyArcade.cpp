@@ -4,6 +4,11 @@
 #include"Train.h"
 #include"Bomb.h"
 #include"ResourceManager.h"
+#include "OnlineConnection.h"
+#include "../NetworkTest/Common/MapItemSync.h"
+#include "../NetworkTest/Common/PlayerMovement.h"
+#include <memory>
+#include <sstream>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 #include <shlwapi.h>  // PathFileExists를 사용하기 위해 추가
@@ -24,6 +29,54 @@ static int GetMovementDirection(const bool* keys, int upKey, int downKey, int le
 static bool IsMovementKey(WPARAM key) {
     return key == 'W' || key == 'S' || key == 'A' || key == 'D' ||
         key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
+}
+
+static std::unique_ptr<OnlineConnection> onlineConnection;
+constexpr UINT_PTR kOnlineTimer = 3;
+
+static std::uint8_t MovementMask(int dir) {
+    switch (dir) {
+    case DIR_UP: return network::kInputUp;
+    case DIR_DOWN: return network::kInputDown;
+    case DIR_LEFT: return network::kInputLeft;
+    case DIR_RIGHT: return network::kInputRight;
+    default: return network::kInputNone;
+    }
+}
+
+static void InitOnlinePlayer(Player& player, int id, int stage, int color, const ItemAbilities& abilities) {
+    const auto start = PlayerStartCell(stage, id);
+    player.Init_Player({start.x, start.y});
+    player.SetPlayerNum(id);
+    player.SetColor(color);
+    player.SetSpeed(abilities.speed);
+    player.SetBomb_distance(abilities.blastRange);
+    player.SetMaxBomb(abilities.bombLimit);
+    if (HBITMAP original = LoadBitmap(g_hInst, MAKEINTRESOURCE(IDB_BITMAP_PLAYER))) {
+        HBITMAP sprite = color ? AdjustBitmapHueWithFilter(original, color, 0, 20) : nullptr;
+        if (sprite) DeleteObject(original);
+        ResourceManager::SetBitmap(id == 1 ? BitmapID::Player1Moving : BitmapID::Player2Moving,
+                                   sprite ? sprite : original);
+    }
+}
+
+static void ApplyOnlinePosition(Player& player, const network::PlayerPosition& p) {
+    const float progress = p.progress / static_cast<float>(network::kCellUnits);
+    const float px = p.cell.x + (p.target.x - p.cell.x) * progress;
+    const float py = p.cell.y + (p.target.y - p.cell.y) * progress;
+    if (px != player.GetPx() || py != player.GetPy())
+        player.SetMoveCount((player.GetMoveCount() + 1) % 16);
+    player.SetX(p.cell.x);
+    player.SetY(p.cell.y);
+    player.SetDestX(p.target.x);
+    player.SetDestY(p.target.y);
+    player.SetPx(px);
+    player.SetPy(py);
+    int direction = DIR_DOWN;
+    if (p.facing == network::kInputUp) direction = DIR_UP;
+    if (p.facing == network::kInputLeft) direction = DIR_LEFT;
+    if (p.facing == network::kInputRight) direction = DIR_RIGHT;
+    player.SetDir(direction);
 }
 
 void DrawOutlinedText(HDC hdc, int x, int y, const wchar_t* text) {
@@ -69,6 +122,16 @@ static DWORD lastTime = GetTickCount();  // 시작 시간(ms)
 static int currentFPS = 0;
 LRESULT CALLBACK WndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpszCmdParam, _In_ int nCmdShow) {
+    // No arguments keeps the original two-player local game.
+    std::istringstream args(lpszCmdParam);
+    std::string mode, ip = "127.0.0.1", extra;
+    if (args >> mode) {
+        if (mode != "--online" || ((args >> ip) && (args >> extra))) {
+            MessageBox(nullptr, L"Usage: CrazyArcade.exe [--online [server IPv4]]", L"CrazyArcade", MB_OK);
+            return 1;
+        }
+        onlineConnection.reset(new OnlineConnection(ip));
+    }
     HWND hWnd;
     MSG Message;
     WNDCLASSEX WndClass;
@@ -104,6 +167,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         TranslateMessage(&Message);
         DispatchMessage(&Message);
     }
+    onlineConnection.reset();
     ResourceManager::UnloadAll();
     return Message.wParam;
   
@@ -150,6 +214,209 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     //현재 아이템 개수 파악
 	static int p1_current_item[3] = { 0,0,0 }; 
 	static int p2_current_item[3] = { 0,0,0 }; 
+
+    // Online mode uses this window for input and rendering, without local gameplay timers.
+    static std::uint8_t onlinePlayerId = 0;
+    static std::uint32_t onlineMatchId = 0, previousMatchId = 0, inputSequence = 0, playerTick = 0;
+    static bool onlinePlaying = false;
+    static std::uint8_t sentDirection = network::kInputNone;
+    static std::vector<std::uint8_t> roomState;
+    static network::MapItemState onlineMap;
+
+    if (onlineConnection) {
+        using namespace network;
+        const auto send = [&](PacketType type, std::uint32_t match, std::vector<std::uint8_t> payload) {
+            if (onlineConnection->Send(type, match, std::move(payload))) return true;
+            onlineConnection->Stop();
+            return false;
+        };
+        const auto sendDirection = [&] {
+            if (!onlinePlaying) return;
+            const int direction = onlinePlayerId == 1 ? GetMovementDirection(keyStates, 'W', 'S', 'A', 'D') :
+                GetMovementDirection(keyStates, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT);
+            const auto mask = MovementMask(direction);
+            if (mask == sentDirection) return;
+            if (inputSequence == (std::numeric_limits<std::uint32_t>::max)()) {
+                onlineConnection->Stop();
+                return;
+            }
+            if (send(PacketType::CS_INPUT, onlineMatchId, InputPayload(mask, inputSequence + 1))) {
+                ++inputSequence;
+                sentDirection = mask;
+            }
+        };
+        const auto showLobby = [&] {
+            if (roomState.empty()) return;
+            const auto title = L"CrazyArcade Online | P" + std::to_wstring(onlinePlayerId) +
+                L" | " + std::to_wstring(roomState[0]) + L"/2 | map " + std::to_wstring(roomState[3]) +
+                L" | ready " + std::to_wstring(roomState[1]) + L"/" + std::to_wstring(roomState[2]) +
+                L" | 1-3 map, Z/V/B/N/M/J/K color, R ready, C cancel";
+            SetWindowText(hWnd, title.c_str());
+        };
+
+        switch (msg) {
+        case WM_CREATE:
+            SetWindowText(hWnd, L"CrazyArcade Online | Connecting...");
+            SetTimer(hWnd, kOnlineTimer, kMoveTickMs, nullptr);
+            return 0;
+        case WM_CHAR:
+        case WM_LBUTTONDOWN:
+            return 0;
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+            if (IsMovementKey(wParam)) {
+                if (onlinePlaying) {
+                    keyStates[wParam] = msg == WM_KEYDOWN;
+                    sendDirection();
+                }
+                return 0;
+            }
+            if (msg == WM_KEYDOWN && onlinePlayerId && !onlinePlaying && !(lParam & (1L << 30))) {
+                if (wParam == 'R' || wParam == 'C') {
+                    send(PacketType::CS_READY, 0, {static_cast<std::uint8_t>(wParam == 'R')});
+                } else if (wParam >= '1' && wParam <= '3') {
+                    send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Map),
+                                                   static_cast<std::uint8_t>(wParam - '0')});
+                } else {
+                    const std::wstring keys = L"ZVBNMJK";
+                    const auto color = keys.find(static_cast<wchar_t>(wParam));
+                    if (color != std::wstring::npos)
+                        send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Color),
+                                                       static_cast<std::uint8_t>(color)});
+                }
+            }
+            return 0;
+        case WM_KILLFOCUS:
+            for (bool& key : keyStates) key = false;
+            sendDirection();
+            break;
+        case WM_TIMER: {
+            if (wParam != kOnlineTimer) return 0;
+            bool redraw = false, invalid = false;
+            for (const auto& packet : onlineConnection->TakeReceived()) {
+                const auto id = packet.header.matchId;
+                const auto& payload = packet.payload;
+                switch (packet.header.packetType) {
+                case PacketType::SC_WELCOME:
+                    invalid = id || onlinePlayerId || payload.size() != 1 || payload[0] < 1 || payload[0] > 2;
+                    if (!invalid) {
+                        onlinePlayerId = payload[0];
+                        game_started = true;
+                        redraw = true;
+                    }
+                    break;
+                case PacketType::SC_ROOM_STATE:
+                    invalid = id || !onlinePlayerId || !ValidRoomStatePayload(payload);
+                    if (!invalid) {
+                        roomState = payload;
+                        if (!onlineMatchId) showLobby();
+                    }
+                    break;
+                case PacketType::SC_SNAPSHOT: {
+                    invalid = !onlinePlayerId || onlineMatchId || id <= previousMatchId ||
+                        roomState.empty() || !ApplyMapItemPacket(packet, onlineMap);
+                    if (invalid) break;
+                    onlineMatchId = id;
+                    playerTick = inputSequence = 0;
+                    sentDirection = kInputNone;
+                    for (bool& key : keyStates) key = false;
+                    for (int y = 0; y < MAP_TILES; ++y)
+                        for (int x = 0; x < MAP_TILES; ++x)
+                            board[y][x] = onlineMap.board[y][x];
+                    InitOnlinePlayer(p1, 1, onlineMap.stage, roomState[4], onlineMap.abilities[0]);
+                    InitOnlinePlayer(p2, 2, onlineMap.stage, roomState[5], onlineMap.abilities[1]);
+                    ice = onlineMap.ice;
+                    p1currentTime = p2currentTime = 30;
+                    SetWindowText(hWnd, L"CrazyArcade Online | Map loaded, waiting for both players...");
+                    send(PacketType::CS_LOADED, onlineMatchId, {});
+                    break;
+                }
+                case PacketType::SC_MATCH_START:
+                    invalid = !onlineMatchId || id != onlineMatchId || onlinePlaying || !payload.empty();
+                    if (!invalid) {
+                        onlinePlaying = true;
+                        for (bool& key : keyStates) key = false;
+                    }
+                    break;
+                case PacketType::SC_PLAYER_STATE: {
+                    PlayerFrame frame;
+                    invalid = !onlinePlaying || id != onlineMatchId || !ReadPlayerState(payload, frame);
+                    if (invalid || frame.tick <= playerTick) break;
+                    playerTick = frame.tick;
+                    ApplyOnlinePosition(p1, frame.players[0]);
+                    ApplyOnlinePosition(p2, frame.players[1]);
+                    if (!selected_stage) {
+                        selected_stage = onlineMap.stage;
+                        PlaySound(nullptr, nullptr, 0);
+                        SetWindowText(hWnd, onlinePlayerId == 1 ? L"CrazyArcade Online | P1 (WASD)" :
+                                                                  L"CrazyArcade Online | P2 (arrows)");
+                    }
+                    redraw = true;
+                    break;
+                }
+                case PacketType::SC_MATCH_CANCEL:
+                    invalid = !onlineMatchId || id != onlineMatchId || payload.size() != 1 ||
+                        payload[0] < 1 || payload[0] > 3;
+                    if (!invalid) {
+                        previousMatchId = onlineMatchId;
+                        onlineMatchId = 0;
+                        onlinePlaying = false;
+                        selected_stage = 0;
+                        redraw = true;
+                    }
+                    break;
+                case PacketType::SC_PEER_LEFT:
+                    invalid = id || !onlinePlayerId || payload.size() != 1 || payload[0] < 1 ||
+                        payload[0] > 2 || payload[0] == onlinePlayerId;
+                    break;
+                case PacketType::SC_STATE:
+                case PacketType::SC_EVENT:
+                case PacketType::SC_MATCH_END:
+                    invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap);
+                    if (!invalid && packet.header.packetType == PacketType::SC_MATCH_END) onlinePlaying = false;
+                    break;
+                case PacketType::SC_ERROR: {
+                    const auto code = payload.size() == 2 ? static_cast<ErrorCode>(PayloadWord(payload.data())) :
+                        static_cast<ErrorCode>(0);
+                    if (!id && code == ErrorCode::SelectionDenied) break;
+                    if (!id && ErrorText(code)) {
+                        const std::string reason = ErrorText(code);
+                        const auto title = L"CrazyArcade Online | " + std::wstring(reason.begin(), reason.end());
+                        SetWindowText(hWnd, title.c_str());
+                        onlineConnection->Stop();
+                    } else {
+                        invalid = true;
+                    }
+                    break;
+                }
+                default:
+                    invalid = true;
+                    break;
+                }
+                if (invalid) {
+                    onlineConnection->Stop();
+                    break;
+                }
+            }
+            if (invalid || onlineConnection->Ended()) {
+                onlinePlaying = false;
+                selected_stage = 0;
+                game_started = false;
+                KillTimer(hWnd, kOnlineTimer);
+                if (invalid) SetWindowText(hWnd, L"CrazyArcade Online | Invalid server state");
+                else if (!onlinePlayerId) SetWindowText(hWnd, L"CrazyArcade Online | Cannot connect (check IPv4, port and protocol)");
+                else SetWindowText(hWnd, L"CrazyArcade Online | Disconnected");
+                redraw = true;
+            }
+            if (redraw) InvalidateRect(hWnd, nullptr, FALSE);
+            return 0;
+        }
+        case WM_DESTROY:
+            KillTimer(hWnd, kOnlineTimer);
+            onlineConnection->Stop();
+            break;
+        }
+    }
 
     switch (msg) {
     case WM_CREATE:
@@ -522,8 +789,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 PlaySound(NULL, NULL, NULL);
                 PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\GameStart.wav"), NULL, SND_ASYNC );
                 
-                POINT p1_start_point = { 8,18 };
-                POINT p2_start_point = { 11,18 };
+                const auto p1_start_point = PlayerStartCell(1, 1);
+                const auto p2_start_point = PlayerStartCell(1, 2);
                 int hueFilterMin = 0;   // 원하는 색 필터 범위
                 int hueFilterMax = 360;
              
@@ -536,8 +803,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 				recolored = AdjustBitmapHueWithFilter(original, p2.GetColor(), hueFilterMin, 20);
 				ResourceManager::SetBitmap(BitmapID::Player2Moving, recolored);
 
-                p1.Init_Player(p1_start_point);
-                p2.Init_Player(p2_start_point);
+                p1.Init_Player({p1_start_point.x, p1_start_point.y});
+                p2.Init_Player({p2_start_point.x, p2_start_point.y});
                 p2.SetPlayerNum(2);
                 init_board_Forest(board);
                
@@ -550,11 +817,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 PlaySound(NULL, NULL, NULL);
                 PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\GameStart.wav"), NULL, SND_ASYNC);
                 selected_stage = 2;
-                POINT p1_start_point = { 8,5 };
-                POINT p2_start_point = { 11,14 };
+                const auto p1_start_point = PlayerStartCell(2, 1);
+                const auto p2_start_point = PlayerStartCell(2, 2);
 				init_board_City(board);
-                p1.Init_Player(p1_start_point);
-                p2.Init_Player(p2_start_point);
+                p1.Init_Player({p1_start_point.x, p1_start_point.y});
+                p2.Init_Player({p2_start_point.x, p2_start_point.y});
 				init_train(train);
                 p1currentTime = 30;
 				p2currentTime = 30;
@@ -576,8 +843,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 PlaySound(NULL, NULL, NULL);
                 PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\GameStart.wav"), NULL, SND_ASYNC);
                 selected_stage = 3;
-                POINT p1_start_point = { 6,5 };
-                POINT p2_start_point = { 13,5 };
+                const auto p1_start_point = PlayerStartCell(3, 1);
+                const auto p2_start_point = PlayerStartCell(3, 2);
                 int hueFilterMin = 0;   // 원하는 색 필터 범위
                 int hueFilterMax = 360;
 
@@ -590,8 +857,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 recolored = AdjustBitmapHueWithFilter(original, p2.GetColor(), hueFilterMin, 20);
                 ResourceManager::SetBitmap(BitmapID::Player2Moving, recolored);
 
-                p1.Init_Player(p1_start_point);
-                p2.Init_Player(p2_start_point);
+                p1.Init_Player({p1_start_point.x, p1_start_point.y});
+                p2.Init_Player({p2_start_point.x, p2_start_point.y});
                 ice = {};
                 p2.SetPlayerNum(2);
                 init_board_Ice(board);
