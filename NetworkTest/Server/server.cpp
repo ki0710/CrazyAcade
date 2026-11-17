@@ -2,6 +2,7 @@
 #include "../Common/Protocol.h"
 #include "../Common/ConsoleStop.h"
 #include "../Common/MapItemSync.h"
+#include "../Common/PlayerMovement.h"
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <chrono>
@@ -130,6 +131,9 @@ public:
     Phase phase = Phase::Lobby;
     std::uint32_t matchId = 0; // Monotonic for this server lifetime; never reused.
     Clock::time_point loadingDeadline;
+    MovingPlayer players[2];
+    std::uint32_t moveTick = 0;
+    Clock::time_point nextMoveTick;
 
     explicit Room(int stage = 1) {
         mapItems.stage = stage;
@@ -199,6 +203,33 @@ public:
         return slots[0] && slots[1] && !slots[0]->dead && !slots[1]->dead &&
             !slots[0]->closing && !slots[1]->closing;
     }
+    bool IsPlaying() const {
+        return phase == Phase::Playing &&
+            (mapItems.stage != 3 || mapItems.ice.result == IceResult::Playing);
+    }
+    void BroadcastPlayers() {
+        const PlayerFrame frame{moveTick, {players[0].position, players[1].position}};
+        Broadcast(PacketType::SC_PLAYER_STATE, EncodePlayerState(frame), matchId);
+    }
+    long WaitMicros(Clock::time_point now) const {
+        if (!IsPlaying()) return 100000;
+        const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
+        return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
+    }
+    void TickMovement(Clock::time_point now) {
+        if (!IsPlaying()) return;
+        constexpr auto interval = std::chrono::milliseconds(kMoveTickMs);
+        bool changed = false;
+        // Bound catch-up after a stalled process, keeping network servicing responsive.
+        for (int steps = 0; steps < 5 && now >= nextMoveTick; ++steps) {
+            ++moveTick;
+            for (int i = 0; i < 2; ++i)
+                changed |= players[i].Step(mapItems.board, mapItems.abilities[i].speed);
+            nextMoveTick += interval;
+        }
+        if (now >= nextMoveTick) nextMoveTick = now + interval;
+        if (changed) BroadcastPlayers();
+    }
     void Tick() {
         if (phase == Phase::Lobby && BothActive() && slots[0]->ready && slots[1]->ready) {
             // Refuse exhaustion instead of reusing an old match identity.
@@ -209,6 +240,16 @@ public:
             if (stage == 3) init_board_Ice(mapItems.board);
             else if (stage == 2) init_board_City(mapItems.board);
             else init_board_Forest(mapItems.board);
+            for (int i = 0; i < 2; ++i) {
+                const auto cell = PlayerStartCell(stage, i + 1);
+                if (!CanMoveTo(cell.x, cell.y, mapItems.board)) {
+                    slots[0]->ready = slots[1]->ready = false;
+                    BroadcastState();
+                    return;
+                }
+                players[i] = MovingPlayer{};
+                players[i].position.cell = players[i].position.target = cell;
+            }
             const auto snapshot = EncodeMapItemSnapshot(mapItems);
             if (snapshot.empty()) {
                 slots[0]->ready = slots[1]->ready = false;
@@ -228,7 +269,10 @@ public:
         if (Clock::now() >= loadingDeadline) { Cancel(CancelReason::Timeout); return; }
         if (slots[0]->loaded && slots[1]->loaded) {
             phase = Phase::Playing; // Exactly one transition/broadcast, including duplicate LOADED.
+            moveTick = 1;
+            nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);
             Broadcast(PacketType::SC_MATCH_START, {}, matchId);
+            BroadcastPlayers();
             std::printf("SC_MATCH_START: match=%u\n", unsigned(matchId));
         }
     }
@@ -289,14 +333,19 @@ public:
         }
         if (packet.header.packetType == PacketType::CS_INPUT) {
             InputData input;
-            if (client.playerId < 1 || client.playerId > 2 || packet.header.matchId != 0 ||
-                !ReadInputPayload(packet.payload, input)) {
+            if (client.playerId < 1 || client.playerId > 2 ||
+                slots[client.playerId - 1] != &client ||
+                !ReadInputPayload(packet.payload, input) || packet.header.matchId > matchId) {
                 Reject(client, ErrorCode::BadRequest);
                 return;
             }
-            // Input transport test only: no Player/Board movement or broadcast here.
-            std::printf("Player %d -> %s, sequence=%u\n", client.playerId,
-                InputDirectionText(input.directionMask), static_cast<unsigned>(input.sequence));
+            if (packet.header.matchId == 0) {
+                // Preserve the console's pre-match transport diagnostic, without moving anyone.
+                std::printf("Player %d -> %s, sequence=%u\n", client.playerId,
+                    InputDirectionText(input.directionMask), static_cast<unsigned>(input.sequence));
+            } else if (IsPlaying() && packet.header.matchId == matchId) {
+                players[client.playerId - 1].AcceptInput(input);
+            }
             return;
         }
         if (packet.header.packetType == PacketType::CS_READY) {
@@ -412,7 +461,7 @@ int main(int argc, char* argv[]) {
 
                 if (client->WantsWrite()) FD_SET(client->socket, &writable);
             }
-            timeval timeout = {0, 100000};
+            timeval timeout = {0, room.WaitMicros(Clock::now())};
             const bool haveSockets = readable.fd_count || writable.fd_count;
             if (!haveSockets) std::this_thread::sleep_for(std::chrono::milliseconds(10));
             if (haveSockets && select(0, &readable, &writable, nullptr, &timeout) == SOCKET_ERROR) {
@@ -437,6 +486,7 @@ int main(int argc, char* argv[]) {
             }
             room.RemoveDead();
             room.Tick();
+            room.TickMovement(Clock::now());
             if (FD_ISSET(listener, &readable)) {
                 sockaddr_in peer = {};
                 int size = sizeof(peer);

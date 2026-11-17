@@ -144,7 +144,7 @@ public static class NetworkIntegrationTests
         using (TcpClient raw = Connect()) {
             NetworkStream stream = raw.GetStream();
             if (approved) {
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 9});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 10});
                 stream.Write(hello, 0, hello.Length);
                 Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
                 CheckRoomState(Receive(stream, 3), 1, 0, 0);
@@ -220,7 +220,7 @@ public static class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 3}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 4}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 9}), 2);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 10}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -236,7 +236,7 @@ public static class NetworkIntegrationTests
             RequestErrorCase(server, new byte[0]);
             RequestErrorCase(server, new byte[4]);
             RequestErrorCase(server, new byte[] {1, 0, 0, 0, 1, 2}); // No player-ID byte.
-            RequestErrorCase(server, Input(1, 1), 1);
+            RequestErrorCase(server, Input(1, 1), uint.MaxValue);
             RequestErrorCase(server, Input(1, 1), 0, false);
             Console.WriteLine("PASS: CS_INPUT rejects invalid masks, lengths, matchId and unapproved sessions");
             RequestErrorCase(server, new byte[0], 0, true, 11);
@@ -249,6 +249,7 @@ public static class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 6}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 7}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 8}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 9}), 3);
             RequestErrorCase(server, new byte[0], 0, true, 15);
             RequestErrorCase(server, new byte[] {1}, 0, true, 15);
             RequestErrorCase(server, new byte[] {2, 0, 1}, 0, true, 15);
@@ -259,7 +260,7 @@ public static class NetworkIntegrationTests
             RequestErrorCase(server, new byte[] {2, 255}, 0, true, 15);
             RequestErrorCase(server, new byte[] {1, 1}, 1, true, 15);
             RequestErrorCase(server, new byte[] {2, 0}, 0, false, 15);
-            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8 rejected");
+            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8/9 rejected");
             RequestErrorCase(server, new byte[0], 0, true, 12);
             RequestErrorCase(server, new byte[] {1}, 1, true, 12);
             RequestErrorCase(server, new byte[0], uint.MaxValue, true, 12);
@@ -269,7 +270,7 @@ public static class NetworkIntegrationTests
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 9});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 10});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -285,7 +286,7 @@ public static class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 9});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 10});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
@@ -306,6 +307,7 @@ public static class NetworkIntegrationTests
             MatchFlow(buildDirectory);
             SelectionFlow(buildDirectory);
             StaleLoading(buildDirectory);
+            MovementFlow(buildDirectory);
             using (App iceServer = new App(Path.Combine(buildDirectory, "Server.exe"), "3")) {
                 iceServer.Wait("Server listening");
                 using (App iceFirst = new App(Path.Combine(buildDirectory, "Client.exe")))
@@ -475,16 +477,80 @@ public static class NetworkIntegrationTests
         byte[] bytes = Frame(type, match, payload);
         stream.Write(bytes, 0, bytes.Length);
     }
+    static byte[] ReadSamePlayers(NetworkStream a, NetworkStream b, uint match)
+    {
+        byte[] frame = Receive(a, 16, match);
+        Check(frame.Length == 18 && Convert.ToBase64String(frame) ==
+              Convert.ToBase64String(Receive(b, 16, match)), "Two clients received different player states");
+        return frame;
+    }
+    static void MovementFlow(string directory)
+    {
+        using (App server = new App(Path.Combine(directory, "Server.exe"))) {
+            server.Wait("Server listening");
+            using (TcpClient first = Connect()) {
+                NetworkStream a = first.GetStream();
+                Send(a, 1, 0, 0, 1, 0, 10); Receive(a, 2); Receive(a, 3);
+                using (TcpClient second = Connect()) {
+                    NetworkStream b = second.GetStream();
+                    Send(b, 1, 0, 0, 1, 0, 10); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(a, 15, 0, 1, 2); Receive(a, 3); Receive(b, 3);
+                    Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                    Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                    Receive(a, 6, 1); Receive(b, 6, 1);
+                    // A structurally valid input for this match cannot move a loading player.
+                    Send(a, 8, 1, Input(8, 900));
+                    Send(a, 12, 1); Send(b, 12, 1);
+                    Receive(a, 13, 1); Receive(b, 13, 1);
+                    byte[] initial = ReadSamePlayers(a, b, 1);
+                    Check(initial[4] == 8 && initial[5] == 5 && initial[11] == 11 &&
+                          initial[12] == 14, "Wrong City spawn positions");
+                    Thread.Sleep(150);
+                    Check(first.Available == 0 && second.Available == 0, "Loading input moved players");
+
+                    // P1 moves across the City lane to the map edge. An old or duplicate
+                    // NONE must not stop it, including one sent before the first tick.
+                    Send(a, 8, 1, Input(8, 2));
+                    Send(a, 8, 1, Input(0, 2));
+                    Send(a, 8, 1, Input(0, 1));
+                    byte[] frame;
+                    do {
+                        frame = ReadSamePlayers(a, b, 1);
+                        Check(frame[5] == 5 && frame[11] == 11 && frame[12] == 14,
+                              "P1 input changed P2");
+                    } while (frame[4] < 19);
+                    Thread.Sleep(120);
+                    Check(first.Available == 0 && second.Available == 0, "Player advanced past map edge");
+
+                    Send(a, 8, 1, Input(0, 3));
+                    Send(b, 8, 1, Input(4, 1));
+                    frame = ReadSamePlayers(a, b, 1);
+                    Check(frame[4] == 19 && frame[13] == 10 && frame[17] == 4,
+                          "P2 did not move independently");
+                    Send(b, 8, 1, Input(0, 2));
+                    do { frame = ReadSamePlayers(a, b, 1); } while (frame[15] != 0 || frame[16] != 0);
+                    Check(frame[11] < 11 && frame[12] == 14, "P2 did not finish its active tile");
+                    // Consume frames already queued in transit, then verify the stop settled.
+                    Thread.Sleep(160);
+                    while (first.Available != 0) frame = ReadSamePlayers(a, b, 1);
+                    Thread.Sleep(160);
+                    Check(first.Available == 0 && second.Available == 0, "P2 kept moving after NONE");
+                }
+            }
+            server.Stop();
+        }
+        Console.WriteLine("PASS: match movement, identical player frames, launch positions, edge, stale/duplicate sequence, NONE, P1/P2 independence");
+    }
     static void StaleLoading(string directory)
     {
         using (App server = new App(Path.Combine(directory, "Server.exe"))) {
             server.Wait("Server listening");
             using (TcpClient first = Connect()) {
                 NetworkStream a = first.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 9); Receive(a, 2); Receive(a, 3);
+                Send(a, 1, 0, 0, 1, 0, 10); Receive(a, 2); Receive(a, 3);
                 using (TcpClient second = Connect()) {
                     NetworkStream b = second.GetStream();
-                    Send(b, 1, 0, 0, 1, 0, 9); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 1, 0, 0, 1, 0, 10); Receive(b, 2); Receive(b, 3); Receive(a, 3);
                     Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                     // Both-ready then SELECT in one accumulated read: no loading tick in between.
                     byte[] ready = Frame(11, 0, new byte[] {1});
@@ -520,7 +586,9 @@ public static class NetworkIntegrationTests
                             Send(a, 12, id);
                             Check(Receive(a, 13, id).Length == 0, "Start payload not empty");
                             Check(Receive(b, 13, id).Length == 0, "Start payload not empty");
+                            ReadSamePlayers(a, b, id);
                             Send(a, 12, id); Send(b, 12, id);
+                            Send(a, 8, 1, Input(8, 1)); // A valid direction for an earlier match is ignored.
                             server.Count("SC_MATCH_START: match=2", 1);
                             Check(first.Available == 0 && second.Available == 0, "Duplicate start");
                         }

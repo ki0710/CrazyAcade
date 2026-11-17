@@ -43,11 +43,26 @@ and exits with code 2; normal shutdown exits with code 0; local communication
 or protocol failures exit with code 1. Startup connect remains a blocking TCP
 connect; subsequent communication uses nonblocking sockets.
 
-## TCP movement input test
+## CrazyArcade online movement
 
-Build the server and clients together for protocol version **9**; version 2
-binaries are rejected by the existing HELLO version check. Existing packet
-numbers 1 through 7 are unchanged. The server address remains 127.0.0.1:9000.
+Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
+(protocol **10**). Run Server.exe on the host, then run
+`CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
+127.0.0.1:9000; launching without arguments keeps the local game.
+
+The window title shows the assigned slot and readiness. The host selects
+1/2/3 (Forest/City/Ice); either player may select its own color with
+Z/V/B/N/M/J/K. Both press R to ready (C cancels before start).
+The game applies the shared map snapshot before automatically sending
+CS_LOADED. After both load, P1 uses WASD and P2 uses the arrow keys.
+Releasing movement keys or losing focus sends NONE; an active tile step is
+allowed to finish. Online mode in this revision synchronizes movement only.
+
+## Console movement diagnostic
+
+Old binaries are rejected by the HELLO version check. Existing packet
+numbers 1 through 15 are unchanged. The default server address is
+127.0.0.1:9000; Client.exe also accepts a server IPv4 argument.
 
 1. Start Server.exe, then Client.exe in two separate console windows.
 2. Wait for SC_WELCOME assigning Player 1 and Player 2.
@@ -67,14 +82,16 @@ Enter/Ctrl+C exits, and input received before WELCOME is not sent.
 CS_INPUT has a five-byte payload: one directionMask byte followed by a
 big-endian uint32 sequence. Only NONE=0x00, UP=0x01, DOWN=0x02, LEFT=0x04,
 RIGHT=0x08 are valid; combined masks and any other payload length are rejected.
-There is no player-ID field. The server uses the approved Session's playerId,
-requires matchId=0, and prints the received sequence without ordering/replay
-correction. Invalid input receives SC_ERROR (invalid request) and closes that
-connection. The client stops rather than wrapping its sequence after uint32 max.
+There is no player-ID field. The server uses the approved session's playerId.
+Zero matchId is a diagnostic only and cannot move a player. During play, only
+the current match and increasing sequences can change the intended direction.
+Old match IDs are ignored; unapproved sessions, malformed input or future
+match IDs receive SC_ERROR. The client stops rather than wrapping its sequence.
 
-The movement transport handler logs directions and sequences. Position updates
-and CrazyArcade keyboard integration belong to the later combat integration.
-The ice state path sends hearts and results through SC_STATE and SC_MATCH_END.
+The server main loop advances movement every 20 ms. SC_PLAYER_STATE sends the
+initial positions and subsequent changes as a pair, with the server tick.
+The client applies server positions; it does not simulate movement locally.
+Ice and Forest keep their existing state formats.
 
 ## Wire contract
 
@@ -93,7 +110,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (9) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (10) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -101,13 +118,18 @@ size limit. Unknown packet types and invalid lengths are rejected.
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
 | CS_INPUT | 8 | directionMask uint8, sequence uint32 |
-| SC_STATE | 9 | ice hearts and result |
+| SC_STATE | 9 | ice hearts/result or Forest carried apples |
 | SC_MATCH_END | 10 | final ice hearts and result |
 | CS_READY | 11 | ready uint8 (0 cancel, 1 ready), matchId=0 |
 | CS_LOADED | 12 | empty, matchId=current snapshot ID |
 | SC_MATCH_START | 13 | empty, matchId=current snapshot ID |
 | SC_MATCH_CANCEL | 14 | reason uint8 (1 departure, 2 timeout, 3 unready), matchId=canceled ID |
 | CS_SELECT | 15 | kind uint8 (1 map, 2 self color), value uint8; matchId=0 |
+| SC_PLAYER_STATE | 16 | serverTick uint32; P1 then P2, each [x, y, targetX, targetY, progress uint16, facing] |
+
+SC_PLAYER_STATE uses the active match ID and exactly 18 payload bytes.
+Coordinates are tile indices (x=column, y=row). Progress is measured in
+1/1200 of a tile; facing uses the existing direction-mask values except NONE.
 
 Error codes: 1 room full, 2 invalid request, 3 version mismatch, 4 HELLO timeout,
 5 selection denied (recoverable; the connection remains open).
@@ -256,8 +278,8 @@ its header now carries the match ID. The snapshot is generated once per attempt
 and broadcast unchanged to both clients. SC_STATE/SC_EVENT/SC_MATCH_END also use
 that ID. The client validates it before applying state. L is deliberately manual
 so the two-client loading barrier and timeout can be tested. It does not claim
-to measure rendering or game asset loading. W/A/S/D/X remain transport-only
-movement inputs with matchId=0, including during loading/play.
+to measure rendering or game asset loading. W/A/S/D/X use matchId=0 before
+start and the current match ID after start.
 
 The server has Lobby, Loading and Playing phases. Loading completion is a bool
 per approved connection, not a reply count. Starting is deferred until after

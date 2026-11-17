@@ -30,7 +30,8 @@ bool IsValidPacketType(PacketType type) {
     case PacketType::CS_LOADED:
     case PacketType::SC_MATCH_START:
     case PacketType::SC_MATCH_CANCEL:
-    case PacketType::CS_SELECT: return true;
+    case PacketType::CS_SELECT:
+    case PacketType::SC_PLAYER_STATE: return true;
     default: return false;
     }
 }
