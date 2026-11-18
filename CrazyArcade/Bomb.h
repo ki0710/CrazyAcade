@@ -22,6 +22,8 @@ class Bomb {
 	bool is_collision_owner; // 설치자와 상대의 피격을 각각 한 번씩 처리한다.
 public:
 	bool make_Bomb(const Player& player, Board board[MAP_TILES][MAP_TILES]);
+	// Display adapter only: no Board mutation, timer, damage or sound.
+	void ApplyOnlineState(int col, int row, int state, int time, int left, int right, int up, int down);
 	bool tick_Bomb();
 	int collision_bomb_player(Bomb bomb, Player player);
 

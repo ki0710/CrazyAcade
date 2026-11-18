@@ -39,6 +39,12 @@
     <ClInclude Include="MovementRules.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="..\NetworkTest\Common\BombRules.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="..\NetworkTest\Common\BombSync.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="OnlineConnection.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>

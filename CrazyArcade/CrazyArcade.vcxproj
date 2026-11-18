@@ -139,6 +139,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="MovementRules.h" />
+    <ClInclude Include="..\NetworkTest\Common\BombRules.h" />
+    <ClInclude Include="..\NetworkTest\Common\BombSync.h" />
     <ClInclude Include="OnlineConnection.h" />
     <ClInclude Include="Board.h" />
     <ClInclude Include="BoardRender.h" />

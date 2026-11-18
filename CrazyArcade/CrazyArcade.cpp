@@ -7,6 +7,7 @@
 #include "OnlineConnection.h"
 #include "../NetworkTest/Common/MapItemSync.h"
 #include "../NetworkTest/Common/PlayerMovement.h"
+#include "../NetworkTest/Common/BombSync.h"
 #include <memory>
 #include <sstream>
 #include <mmsystem.h>
@@ -222,6 +223,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static std::uint8_t sentDirection = network::kInputNone;
     static std::vector<std::uint8_t> roomState;
     static network::MapItemState onlineMap;
+    static network::BombFrame onlineBombFrame;
 
     if (onlineConnection) {
         using namespace network;
@@ -230,17 +232,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             onlineConnection->Stop();
             return false;
         };
-        const auto sendDirection = [&] {
+        const auto clearOnlineDisplay = [&] {
+            p1bombs.clear();
+            p2bombs.clear();
+            onlineBombFrame = BombFrame{};
+            for (int y = 0; y < MAP_TILES; ++y)
+                for (int x = 0; x < MAP_TILES; ++x)
+                    if (board[y][x].obstacle == 9) board[y][x].obstacle = 0;
+            ice = {};
+            game_end = false;
+            game_winner = 0;
+            sentDirection = kInputNone;
+            for (bool& key : keyStates) key = false;
+            p1.SetIsHit(false);
+            p2.SetIsHit(false);
+        };
+        const auto sendDirection = [&](bool placeBomb = false) {
             if (!onlinePlaying) return;
             const int direction = onlinePlayerId == 1 ? GetMovementDirection(keyStates, 'W', 'S', 'A', 'D') :
                 GetMovementDirection(keyStates, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT);
             const auto mask = MovementMask(direction);
-            if (mask == sentDirection) return;
+            if (mask == sentDirection && !placeBomb) return;
             if (inputSequence == (std::numeric_limits<std::uint32_t>::max)()) {
                 onlineConnection->Stop();
                 return;
             }
-            if (send(PacketType::CS_INPUT, onlineMatchId, InputPayload(mask, inputSequence + 1))) {
+            if (send(PacketType::CS_INPUT, onlineMatchId, InputPayload(mask, inputSequence + 1, placeBomb))) {
                 ++inputSequence;
                 sentDirection = mask;
             }
@@ -264,6 +281,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         case WM_KEYDOWN:
         case WM_KEYUP:
+            if (onlinePlaying && msg == WM_KEYDOWN && !(lParam & (1L << 30)) &&
+                ((onlinePlayerId == 1 && wParam == VK_SPACE) ||
+                 (onlinePlayerId == 2 && wParam == VK_RETURN))) {
+                sendDirection(true);
+                return 0;
+            }
             if (IsMovementKey(wParam)) {
                 if (onlinePlaying) {
                     keyStates[wParam] = msg == WM_KEYDOWN;
@@ -271,7 +294,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 return 0;
             }
-            if (msg == WM_KEYDOWN && onlinePlayerId && !onlinePlaying && !(lParam & (1L << 30))) {
+            if (msg == WM_KEYDOWN && onlinePlayerId && !onlinePlaying && !onlineMatchId &&
+                !(lParam & (1L << 30))) {
                 if (wParam == 'R' || wParam == 'C') {
                     send(PacketType::CS_READY, 0, {static_cast<std::uint8_t>(wParam == 'R')});
                 } else if (wParam >= '1' && wParam <= '3') {
@@ -316,6 +340,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     invalid = !onlinePlayerId || onlineMatchId || id <= previousMatchId ||
                         roomState.empty() || !ApplyMapItemPacket(packet, onlineMap);
                     if (invalid) break;
+                    clearOnlineDisplay();
                     onlineMatchId = id;
                     playerTick = inputSequence = 0;
                     sentDirection = kInputNone;
@@ -354,10 +379,44 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     redraw = true;
                     break;
                 }
+                case PacketType::SC_BOMB_STATE: {
+                    BombFrame frame;
+                    invalid = !onlineMatchId || id != onlineMatchId || !ReadBombState(payload, frame);
+                    if (invalid || frame.sequence <= onlineBombFrame.sequence) break;
+                    bool placed = false, exploded = false;
+                    for (const auto& view : frame.bombs) {
+                        const auto previous = std::find_if(onlineBombFrame.bombs.begin(), onlineBombFrame.bombs.end(),
+                            [&](const BombView& b) { return b.id == view.id; });
+                        placed |= previous == onlineBombFrame.bombs.end() && view.state == 1;
+                        exploded |= view.state == 2 &&
+                            (previous == onlineBombFrame.bombs.end() || previous->state != 2);
+                    }
+                    ApplyBombOccupancy(onlineMap.board, frame);
+                    for (int y = 0; y < MAP_TILES; ++y)
+                        for (int x = 0; x < MAP_TILES; ++x)
+                            board[y][x] = onlineMap.board[y][x];
+                    p1bombs.clear();
+                    p2bombs.clear();
+                    for (const auto& view : frame.bombs) {
+                        Bomb display;
+                        display.ApplyOnlineState(view.col, view.row, view.state, view.time,
+                                                 view.left, view.right, view.up, view.down);
+                        (view.owner == 1 ? p1bombs : p2bombs).push_back(display);
+                    }
+                    onlineBombFrame = std::move(frame);
+                    if (exploded)
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Bubble.wav"), nullptr, SND_FILENAME | SND_ASYNC);
+                    else if (placed)
+                        PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Ballon.wav"), nullptr, SND_FILENAME | SND_ASYNC);
+                    redraw = true;
+                    break;
+                }
                 case PacketType::SC_MATCH_CANCEL:
                     invalid = !onlineMatchId || id != onlineMatchId || payload.size() != 1 ||
                         payload[0] < 1 || payload[0] > 3;
                     if (!invalid) {
+                        clearOnlineDisplay();
+                        onlineMap = MapItemState{};
                         previousMatchId = onlineMatchId;
                         onlineMatchId = 0;
                         onlinePlaying = false;
@@ -373,7 +432,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 case PacketType::SC_EVENT:
                 case PacketType::SC_MATCH_END:
                     invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap);
-                    if (!invalid && packet.header.packetType == PacketType::SC_MATCH_END) onlinePlaying = false;
+                    if (!invalid) {
+                        for (int y = 0; y < MAP_TILES; ++y)
+                            for (int x = 0; x < MAP_TILES; ++x)
+                                board[y][x] = onlineMap.board[y][x];
+                        ice = onlineMap.ice;
+                        p1.SetCurrentApple(onlineMap.forest.carried[0]);
+                        p2.SetCurrentApple(onlineMap.forest.carried[1]);
+                        if (packet.header.packetType == PacketType::SC_MATCH_END) {
+                            onlinePlaying = false;
+                            game_end = true;
+                            game_winner = static_cast<int>(ice.result);
+                            SetWindowText(hWnd, game_winner == 3 ? L"CrazyArcade Online | Draw" :
+                                game_winner == 1 ? L"CrazyArcade Online | P1 wins" : L"CrazyArcade Online | P2 wins");
+                        }
+                        redraw = true;
+                    }
                     break;
                 case PacketType::SC_ERROR: {
                     const auto code = payload.size() == 2 ? static_cast<ErrorCode>(PayloadWord(payload.data())) :
@@ -399,6 +473,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
             }
             if (invalid || onlineConnection->Ended()) {
+                clearOnlineDisplay();
+                onlineMap = MapItemState{};
                 onlinePlaying = false;
                 selected_stage = 0;
                 game_started = false;
@@ -1160,7 +1236,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (game_winner == static_cast<int>(IceResult::Draw)) {
                     DrawOutlinedText(mem, 550, 400, L"무승부");
                 }
-                DrawOutlinedText(mem, 500, 600,L"다시 시작하려면 R을 누르시오 .");  // 
+                if (onlineConnection)
+                    DrawOutlinedText(mem, 400, 600, L"온라인 재경기는 아직 지원하지 않습니다.");
+                else
+                    DrawOutlinedText(mem, 500, 600,L"다시 시작하려면 R을 누르시오 .");
                 SelectObject(gameEndDC, oldGameEndBitmap);
                 DeleteObject(gameEndBitmap);
                 DeleteDC(gameEndDC);

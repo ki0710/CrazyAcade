@@ -33,8 +33,8 @@ clients, and press R in both. Both print the ice map and initial hearts 3,3.
 The room's `ResolveIceHits` accepts confirmed player hits from one game update,
 applies all damage, and then resolves the result once. Bomb handling must
 report each bomb/player pair once, as in the existing game hit flags.
-The console connection program currently supplies the initial map; the
-combat caller provides the confirmed hit batch.
+The server Bomb update supplies this confirmed hit batch. Both games apply
+the server's final hearts and result, including the same-tick draw case.
 
 Run Client.exe again for the third-client rejection test. Press Enter or
 Ctrl+C in a running application to shut it down. The server keeps accepting
@@ -43,10 +43,10 @@ and exits with code 2; normal shutdown exits with code 0; local communication
 or protocol failures exit with code 1. Startup connect remains a blocking TCP
 connect; subsequent communication uses nonblocking sockets.
 
-## CrazyArcade online movement
+## CrazyArcade online movement and Bomb/Ice combat
 
 Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
-(protocol **10**). Run Server.exe on the host, then run
+(protocol **11**). Run Server.exe on the host, then run
 `CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
 127.0.0.1:9000; launching without arguments keeps the local game.
 
@@ -56,12 +56,17 @@ Z/V/B/N/M/J/K. Both press R to ready (C cancels before start).
 The game applies the shared map snapshot before automatically sending
 CS_LOADED. After both load, P1 uses WASD and P2 uses the arrow keys.
 Releasing movement keys or losing focus sends NONE; an active tile step is
-allowed to finish. Online mode in this revision synchronizes movement only.
+allowed to finish. P1 presses Space and P2 presses Enter to request one Bomb
+on the first key-down (autorepeat is ignored). Placement uses the server's
+last completed tile, preserves the current direction, and is blocked by
+occupied cells and the owner's active Bomb limit (including visible blasts).
+Bombs, obstacle changes and Ice damage/results now come from the server.
+Online basic-item pickup, City combat and rematches are not implemented.
 
 ## Console movement diagnostic
 
 Old binaries are rejected by the HELLO version check. Existing packet
-numbers 1 through 15 are unchanged. The default server address is
+numbers 1 through 16 are unchanged. The default server address is
 127.0.0.1:9000; Client.exe also accepts a server IPv4 argument.
 
 1. Start Server.exe, then Client.exe in two separate console windows.
@@ -79,8 +84,8 @@ key repeat may send additional inputs. Releasing a key does not produce a
 console key-up request: X explicitly sends NONE for this transport-only test.
 Enter/Ctrl+C exits, and input received before WELCOME is not sent.
 
-CS_INPUT has a five-byte payload: one directionMask byte followed by a
-big-endian uint32 sequence. Only NONE=0x00, UP=0x01, DOWN=0x02, LEFT=0x04,
+CS_INPUT has a six-byte payload: one directionMask byte, a big-endian uint32
+sequence, and placeBomb uint8 (0 or 1). Only NONE=0x00, UP=0x01, DOWN=0x02, LEFT=0x04,
 RIGHT=0x08 are valid; combined masks and any other payload length are rejected.
 There is no player-ID field. The server uses the approved session's playerId.
 Zero matchId is a diagnostic only and cannot move a player. During play, only
@@ -110,14 +115,14 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (10) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (11) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
 | SC_PEER_LEFT | 5 | departed playerId uint8 (1 or 2) |
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
-| CS_INPUT | 8 | directionMask uint8, sequence uint32 |
+| CS_INPUT | 8 | directionMask uint8, sequence uint32, placeBomb uint8 |
 | SC_STATE | 9 | ice hearts/result or Forest carried apples |
 | SC_MATCH_END | 10 | final ice hearts and result |
 | CS_READY | 11 | ready uint8 (0 cancel, 1 ready), matchId=0 |
@@ -126,6 +131,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 | SC_MATCH_CANCEL | 14 | reason uint8 (1 departure, 2 timeout, 3 unready), matchId=canceled ID |
 | CS_SELECT | 15 | kind uint8 (1 map, 2 self color), value uint8; matchId=0 |
 | SC_PLAYER_STATE | 16 | serverTick uint32; P1 then P2, each [x, y, targetX, targetY, progress uint16, facing] |
+| SC_BOMB_STATE | 17 | serverTick uint32, Bomb sequence uint32, count uint16, full Bomb list |
 
 SC_PLAYER_STATE uses the active match ID and exactly 18 payload bytes.
 Coordinates are tile indices (x=column, y=row). Progress is measured in
@@ -144,7 +150,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 9. Once both
+Build the server and both clients together for protocol version 11. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -222,7 +228,7 @@ the unit tests deterministically check every two-part frame split position.
 
 PacketTests checks exact wire bytes, split/merged frames, maximum-size frames,
 all five input directions, uint32 sequence round trips, all 256 direction-byte
-values, invalid input sizes, and every split of the 15-byte CS_INPUT frame,
+values, invalid input sizes, and every split of the 16-byte CS_INPUT frame,
 invalid lengths/types, short sends, WSAEWOULDBLOCK resumption, 4096-byte recv,
 EOF/truncated EOF, and socket errors. Short sends and would-block are forced
 using scripted Winsock substitutes in the actual SocketUtils implementation;
@@ -230,7 +236,7 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 9. Versions 1 through 8
+Build both applications together for protocol version 11. Versions 1 through 10
 are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
@@ -326,7 +332,7 @@ console task does not change game rendering or the MapItemSync snapshot payload.
 Invalid lengths, kinds, values, matchId, or unapproved senders receive the existing
 BadRequest and disconnect. A valid request without map permission, or outside
 Lobby, receives SC_ERROR code 5 (Selection denied) without disconnecting or
-changing room state. Both server and client use protocol version 9 so version-7
+changing room state. Both server and client use protocol version 11 so version-7
 clients cannot interpret the expanded ROOM_STATE accidentally.
 
 After WELCOME, use these keys without Enter (letters accept either case):
@@ -373,5 +379,137 @@ The combat loop calls Room::ResolveForestChanges with newly confirmed tree
 owners and newly hit players for one update, after deduplicating each bomb's
 tree directions/player hits. The room applies gains before losses, sends the
 related events and then the final carried counts. It only runs during forest
-play. The current console server supplies loading/start and initial counts;
-the combat caller still supplies confirmed hits, as for ResolveIceHits.
+play. The server Bomb update now supplies these confirmed hits; Forest basket
+and victory rules remain a separate integration task.
+
+## Bomb state, time and final results (protocol 11)
+
+Each SC_BOMB_STATE entry is 17 bytes: bombId uint32, owner uint8,
+column uint8, row uint8, state uint8 (1 planted, 2 exploding),
+left/right/up/down reach uint16 each, and displayTime uint8.
+All multibyte values are big endian. Match identity stays in the header.
+The full list is sent when its state or server-supplied animation frame changes.
+Missing IDs are removed; a new ID owns a same-cell replacement independently.
+The Bomb sequence is separate from SC_PLAYER_STATE's tick. BombView contains
+no handles, pixels or C++ object bytes. Clients validate length, IDs, cells,
+state and displayTime before replacing their view.
+
+The server consumes accepted placement events once at a game update, even
+when a placement fails. A later NONE never overwrites these events.
+Only the approved player's current match and increasing input sequence apply.
+Bomb IDs originate on the server, starting at 1 for each match.
+
+The fuse deadline is 1050 ms and removal is 550 ms after that deadline,
+using steady_clock elapsed milliseconds checked by the 20 ms game update.
+The local game's 21/11 callbacks at 50 ms provide these nominal durations.
+If a long server stall spans a blast's whole lifetime, its Board transition
+is still resolved once, then the expired blast is removed without retroactive
+damage against the players' new positions. Client paint/timer counts cannot
+start, delay or finish a blast.
+
+The shared Board uses 9 for planted Bombs. Obstacle 1 is broken in the server
+and its preassigned hidden item is retained; the existing SC_EVENT carries
+that change. Bomb occupancy uses the Bomb list, not an obstacle-break event.
+Obstacle 2 stops an arm without destruction and awards apples only in Forest.
+Bombs (9) and 3..6 keep their existing pass-through rule, without chain reactions.
+Players can escape their own planted tile and cannot re-enter it until explosion.
+Each Bomb can hit each player once; independent Bombs each cause damage.
+
+All new hits in one update reach the existing Ice rules before result resolution.
+On finish, final Player/Board/Bomb state precedes SC_STATE and SC_MATCH_END.
+The server's Finished phase blocks new movement, placement and damage.
+Unexploded Bombs are canceled and visible blasts expire without damage; Bomb
+cleanup packets remain valid after the result. The UI applies the same final
+hearts and game_winner, redraws the result, and does not advertise a local R
+restart as an online rematch. Cancellation/disconnect clears the online view.
+
+Run the existing integration suite first, then these additional live checks:
+
+```powershell
+Add-Type -Path NetworkTest/Common/BombIntegrationTests.cs
+[BombIntegrationTests]::Run((Join-Path (Get-Location) 'NetworkTest/Common/build'))
+```
+
+BombTests.exe covers deterministic deadlines (including stalled updates),
+placement/caps, Board occupancy and item preservation, all arms/edges,
+moving hit cells, owner/opponent deduplication, Ice results, and codecs.
+The live suite compares both recipients' bytes, checks consumed failed and
+replayed requests, repeated self damage and one match end, and walks P2
+through an actual walkable Ice route to test same-tick opponent hits/draws.
+It never changes the server world through a testing packet.
+
+## Project Progress Report notes: November 18
+
+### Server state and reuse
+
+- Related plan: 3-4, 3-5, 5-2, 5-3, 5-4, 8-1.
+- Original plan: GameWorld/BombState own authoritative combat; reuse the old
+  Bomb operations after separating simulation from rendering.
+- Implementation: the existing Room owns a small pure ServerBomb list and
+  uses BombRules. The Win32 Bomb gains only a display-state adapter.
+- Reason: the integrated server already owns Player and Board state in Room;
+  linking the Win32 implementation would also import rendering dependencies.
+- Benefit: authoritative combat fits the current server without a GameWorld
+  migration; existing local Bomb function bodies remain unchanged.
+- Caution: pure server rules and local rules are separate implementations and
+  must be checked together when a combat rule changes.
+- Integration/follow-up: Room, BombRules.h, BombSync.h and Bomb::ApplyOnlineState
+  are affected. Player movement, IceState, Board and receiver threads are reused.
+- Report text: Server Bomb state was integrated into the existing Room instead
+  of introducing the full planned GameWorld. A small display adapter lets the
+  actual game render authoritative Bombs while retaining its local game path.
+
+### Synchronization packet
+
+- Related plan: 3-4, 5-6, 6.
+- Original plan: synchronize authoritative state/events through the planned
+  SC_STATE/SC_EVENT flow.
+- Implementation: append one CS_INPUT placement flag and add SC_BOMB_STATE
+  (17), a complete Bomb list with its own sequence; use protocol 11.
+- Reason: the existing Ice/Forest SC_STATE decoders have fixed payload layouts.
+- Benefit: those layouts and the MapItemSync event format remain compatible
+  within the new build; the Bomb list also defines removal and same-cell IDs.
+- Caution: protocol 10 binaries cannot participate. This is a Bomb snapshot,
+  not reconnect support or full-world resynchronization.
+- Integration/follow-up: Protocol/Packet, server, console client, GUI and tests
+  must be rebuilt together. Future world snapshots must include Bombs explicitly.
+- Report text: A dedicated Bomb-state packet preserves the existing Ice/Forest
+  state formats. Match identity and an independent Bomb sequence keep Bomb
+  replacement and removal distinct from Player movement ticks.
+
+### Concrete server timing
+
+- Related plan: 5-3, 5-5, 7.
+- Original plan: move combat decisions to server updates; the old local Bomb
+  implementation uses a 50 ms callback counter.
+- Implementation: the existing 20 ms scheduler checks steady_clock deadlines,
+  with a 1050 ms fuse and a further 550 ms blast lifetime.
+- Reason: callback counts depend on scheduling and paint load. Absolute server
+  deadlines preserve the nominal local durations independently of the clients.
+- Benefit: both clients display the same server transition and damage result.
+- Caution: a stall spanning the complete blast lifetime resolves Board changes
+  but does not apply historical damage to current Player positions.
+- Integration/follow-up: only Room and Bomb rules decide time; the client uses
+  supplied display frames. Receive/UI queues remain; no TCP_NODELAY, event wake,
+  batching or prediction changes are included. Multi-PC timing is tested later.
+- Report text: Server updates now check real elapsed deadlines rather than
+  replaying local timer counts. This implements the planned server authority
+  while preserving the local Bomb's nominal fuse and blast durations.
+
+### Schedule
+
+- Related plan: 8-2.
+- Original plan: Bomb state networking on November 17 and joint testing on
+  November 18.
+- Implementation: actual Player synchronization was completed November 17;
+  Bomb/Ice integration moved to November 18 and the two-PC test to November 19.
+- Reason: actual-game movement synchronization was completed before connecting
+  authoritative Bomb hits and results to that Player state.
+- Benefit: combat integration uses verified Player cells and movement progress.
+- Caution: two-PC latency, simultaneous input and user-perceived timing still
+  need the joint test; the one-PC tests do not establish those results.
+- Integration/follow-up: no packet or code change follows from the schedule.
+  Forest basket/results, City rules, resync and rematches retain their later scope.
+- Report text: Actual-game movement synchronization required November 17.
+  Bomb/Ice integration was completed November 18, with two-PC joint testing
+  rescheduled to November 19.

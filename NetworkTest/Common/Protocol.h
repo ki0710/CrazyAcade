@@ -3,7 +3,7 @@
 
 namespace network {
 constexpr std::uint16_t kGameVersion = 1;
-constexpr std::uint16_t kProtocolVersion = 10;
+constexpr std::uint16_t kProtocolVersion = 11;
 constexpr int kLoadingTimeoutSeconds = 10;
 enum class CancelReason : std::uint8_t { PeerLeft = 1, Timeout = 2, Unready = 3 };
 enum class ErrorCode : std::uint16_t { RoomFull = 1, BadRequest = 2, VersionMismatch = 3, Timeout = 4,
@@ -50,6 +50,7 @@ constexpr std::uint8_t kInputRight = 0x08;
 struct InputData {
     std::uint8_t directionMask = kInputNone;
     std::uint32_t sequence = 0;
+    bool placeBomb = false;
 };
 
 inline const char* InputDirectionText(std::uint8_t directionMask) {
@@ -63,21 +64,23 @@ inline const char* InputDirectionText(std::uint8_t directionMask) {
     }
 }
 
-// Five wire bytes: direction mask, followed by a big-endian uint32 sequence.
+// Six wire bytes: direction, big-endian uint32 sequence, one-shot place flag.
 // Player identity comes from the approved Session, never from this payload.
 inline std::vector<std::uint8_t> InputPayload(std::uint8_t directionMask,
-                                            std::uint32_t sequence) {
+                                            std::uint32_t sequence, bool placeBomb = false) {
     if (!InputDirectionText(directionMask)) return {};
     return {directionMask, static_cast<std::uint8_t>(sequence >> 24),
             static_cast<std::uint8_t>(sequence >> 16),
-            static_cast<std::uint8_t>(sequence >> 8), static_cast<std::uint8_t>(sequence)};
+            static_cast<std::uint8_t>(sequence >> 8), static_cast<std::uint8_t>(sequence),
+            static_cast<std::uint8_t>(placeBomb)};
 }
 
 inline bool ReadInputPayload(const std::vector<std::uint8_t>& payload, InputData& output) {
-    if (payload.size() != 5 || !InputDirectionText(payload[0])) return false;
+    if (payload.size() != 6 || !InputDirectionText(payload[0]) || payload[5] > 1) return false;
     output.directionMask = payload[0];
     output.sequence = (std::uint32_t(PayloadWord(payload.data() + 1)) << 16) |
                       PayloadWord(payload.data() + 3);
+    output.placeBomb = payload[5] != 0;
     return true;
 }
 

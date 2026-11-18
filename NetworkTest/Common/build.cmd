@@ -10,6 +10,10 @@ cl /nologo /EHsc /W4 /std:c++14 Packet.cpp PacketTests.cpp /Fe:build\PacketTests
 if errorlevel 1 goto failed
 build\PacketTests.exe
 if errorlevel 1 goto failed
+cl /nologo /EHsc /W4 /std:c++14 BombTests.cpp ..\..\CrazyArcade\Board.cpp ..\..\CrazyArcade\IceState.cpp /Fe:build\BombTests.exe /Fo:build\ /link Ws2_32.lib
+if errorlevel 1 goto failed
+build\BombTests.exe
+if errorlevel 1 goto failed
 popd
 exit /b 0
 :failed
