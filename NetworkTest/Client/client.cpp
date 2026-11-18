@@ -3,6 +3,7 @@
 #include "../Common/ConsoleStop.h"
 #include "../Common/MapItemSync.h"
 #include "../Common/PlayerMovement.h"
+#include "../Common/BombSync.h"
 #include <ws2tcpip.h>
 #include <chrono>
 #include <cstdio>
@@ -28,12 +29,14 @@ struct Match {
     std::uint32_t previous = 0;
     bool started = false;
     PlayerFrame players;
+    BombFrame bombs;
 };
 bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& mapItems, Match& match) {
     const auto type = packet.header.packetType;
     const bool gamePacket = type == PacketType::SC_SNAPSHOT || type == PacketType::SC_MATCH_START ||
         type == PacketType::SC_MATCH_CANCEL || type == PacketType::SC_STATE ||
-        type == PacketType::SC_MATCH_END || type == PacketType::SC_EVENT || type == PacketType::SC_PLAYER_STATE;
+        type == PacketType::SC_MATCH_END || type == PacketType::SC_EVENT ||
+        type == PacketType::SC_PLAYER_STATE || type == PacketType::SC_BOMB_STATE;
     if (gamePacket ? packet.header.matchId == 0 : packet.header.matchId != 0) return false;
     const auto& payload = packet.payload;
     switch (packet.header.packetType) {
@@ -59,6 +62,7 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         match.id = packet.header.matchId;
         match.started = false;
         match.players = PlayerFrame{};
+        match.bombs = BombFrame{};
         std::printf("SC_SNAPSHOT: stage=%d map=%dx%d match=%u\n", mapItems.stage, MAP_TILES, MAP_TILES,
             unsigned(match.id));
         if (mapItems.stage == 1)
@@ -77,6 +81,7 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         match.id = 0;
         match.started = false;
         mapItems = MapItemState{};
+        match.bombs = BombFrame{};
         return true;
     case PacketType::SC_EVENT:
         return playerId && match.id == packet.header.matchId && ApplyMapItemPacket(packet, mapItems);
@@ -86,9 +91,19 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
         if (frame.tick > match.players.tick) match.players = frame;
         return true;
     }
+    case PacketType::SC_BOMB_STATE: {
+        BombFrame frame;
+        if (!match.id || match.id != packet.header.matchId || !ReadBombState(payload, frame)) return false;
+        if (frame.sequence > match.bombs.sequence) {
+            ApplyBombOccupancy(mapItems.board, frame);
+            match.bombs = std::move(frame);
+        }
+        return true;
+    }
     case PacketType::SC_STATE:
     case PacketType::SC_MATCH_END:
         if (!playerId || match.id != packet.header.matchId || !ApplyMapItemPacket(packet, mapItems)) return false;
+        if (packet.header.packetType == PacketType::SC_MATCH_END) match.started = false;
         if (mapItems.stage == 1) {
             std::printf("SC_STATE: apples=%d,%d\n", mapItems.forest.carried[0], mapItems.forest.carried[1]);
             return true;

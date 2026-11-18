@@ -3,6 +3,7 @@
 #include "../Common/ConsoleStop.h"
 #include "../Common/MapItemSync.h"
 #include "../Common/PlayerMovement.h"
+#include "../Common/BombSync.h"
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <chrono>
@@ -127,13 +128,18 @@ public:
     std::vector<std::unique_ptr<Client>> clients;
     Client* slots[2] = {nullptr, nullptr};
     MapItemState mapItems;
-    enum class Phase { Lobby, Loading, Playing };
+    enum class Phase { Lobby, Loading, Playing, Finished };
     Phase phase = Phase::Lobby;
     std::uint32_t matchId = 0; // Monotonic for this server lifetime; never reused.
     Clock::time_point loadingDeadline;
     MovingPlayer players[2];
     std::uint32_t moveTick = 0;
     Clock::time_point nextMoveTick;
+    Clock::time_point gameEpoch;
+    std::vector<ServerBomb> bombs;
+    std::deque<int> pendingBombs;
+    std::uint32_t nextBombId = 1, bombSequence = 0;
+    std::vector<std::uint8_t> lastBombBody;
 
     explicit Room(int stage = 1) {
         mapItems.stage = stage;
@@ -143,15 +149,14 @@ public:
     }
 
     // The game loop supplies confirmed bomb hits for one completed update.
-    void ResolveIceHits(const std::vector<int>& playerIds) {
-        if (phase != Phase::Playing || mapItems.stage != 3 || mapItems.ice.result != IceResult::Playing) return;
+    bool ResolveIceHits(const std::vector<int>& playerIds) {
+        if (phase != Phase::Playing || mapItems.stage != 3 || mapItems.ice.result != IceResult::Playing) return false;
         bool changed = false;
         for (int playerId : playerIds) {
             if (ApplyIceHit(mapItems.ice, playerId)) changed = true;
         }
-        const bool ended = FinishIceTick(mapItems.ice);
-        if (changed) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
-        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice), matchId);
+        FinishIceTick(mapItems.ice);
+        return changed; // Caller sends final world state before SC_MATCH_END.
     }
 
     // The combat caller supplies newly confirmed tree owners and player hits.
@@ -193,6 +198,9 @@ public:
     }
     void Cancel(CancelReason reason) {
         if (phase == Phase::Lobby) return;
+        CancelPlantedBombs(bombs, mapItems.board);
+        bombs.clear();
+        pendingBombs.clear();
         phase = Phase::Lobby;
         for (auto* slot : slots) if (slot) { slot->ready = false; slot->loaded = false; }
         Broadcast(PacketType::SC_MATCH_CANCEL, {static_cast<std::uint8_t>(reason)}, matchId);
@@ -211,24 +219,72 @@ public:
         const PlayerFrame frame{moveTick, {players[0].position, players[1].position}};
         Broadcast(PacketType::SC_PLAYER_STATE, EncodePlayerState(frame), matchId);
     }
+    void BroadcastBombs(std::uint64_t now) {
+        BombFrame frame;
+        frame.tick = moveTick;
+        if (bombSequence == (std::numeric_limits<std::uint32_t>::max)()) return;
+        frame.sequence = bombSequence + 1;
+        for (const auto& bomb : bombs) frame.bombs.push_back(ViewBomb(bomb, now));
+        const auto payload = EncodeBombState(frame);
+        if (payload.empty()) return;
+        const std::vector<std::uint8_t> body(payload.begin() + 8, payload.end());
+        if (body == lastBombBody) return;
+        ++bombSequence;
+        lastBombBody = body;
+        Broadcast(PacketType::SC_BOMB_STATE, payload, matchId);
+    }
+    bool NeedsGameTick() const {
+        return IsPlaying() || (phase == Phase::Finished && !bombs.empty());
+    }
     long WaitMicros(Clock::time_point now) const {
-        if (!IsPlaying()) return 100000;
+        if (!NeedsGameTick()) return 100000;
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
     void TickMovement(Clock::time_point now) {
-        if (!IsPlaying()) return;
+        if (!NeedsGameTick()) return;
         constexpr auto interval = std::chrono::milliseconds(kMoveTickMs);
         bool changed = false;
+        bool advanced = false;
         // Bound catch-up after a stalled process, keeping network servicing responsive.
         for (int steps = 0; steps < 5 && now >= nextMoveTick; ++steps) {
             ++moveTick;
-            for (int i = 0; i < 2; ++i)
-                changed |= players[i].Step(mapItems.board, mapItems.abilities[i].speed);
+            advanced = true;
+            if (IsPlaying())
+                for (int i = 0; i < 2; ++i)
+                    changed |= players[i].Step(mapItems.board, mapItems.abilities[i].speed);
             nextMoveTick += interval;
         }
         if (now >= nextMoveTick) nextMoveTick = now + interval;
+        if (!advanced) return;
+        const auto milliseconds = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - gameEpoch).count());
+        while (!pendingBombs.empty()) {
+            const int owner = pendingBombs.front();
+            pendingBombs.pop_front(); // A failed placement also consumes this request.
+            if (IsPlaying())
+                TryPlaceBomb(bombs, nextBombId, owner, players[owner - 1],
+                             mapItems.abilities[owner - 1], mapItems.board, milliseconds);
+        }
+        const auto changes = UpdateBombs(bombs, mapItems.board, players, milliseconds,
+                                        IsPlaying(), mapItems.stage == 1);
+        const bool iceChanged = ResolveIceHits(changes.hits);
+        const bool ended = phase == Phase::Playing && mapItems.stage == 3 &&
+                           mapItems.ice.result != IceResult::Playing;
+        if (ended) {
+            phase = Phase::Finished;
+            pendingBombs.clear();
+            for (auto& player : players) player.direction = kInputNone;
+            CancelPlantedBombs(bombs, mapItems.board);
+        }
         if (changed) BroadcastPlayers();
+        for (const auto& cell : changes.broken)
+            Broadcast(PacketType::SC_EVENT,
+                      EncodeObstacleBroken(cell.x, cell.y, mapItems.board[cell.y][cell.x]), matchId);
+        BroadcastBombs(milliseconds);
+        if (mapItems.stage == 1) ResolveForestChanges(changes.treeOwners, changes.hits);
+        if (iceChanged) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
+        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice), matchId);
     }
     void Tick() {
         if (phase == Phase::Lobby && BothActive() && slots[0]->ready && slots[1]->ready) {
@@ -257,6 +313,11 @@ public:
                 return;
             }
             ++matchId;
+            bombs.clear();
+            pendingBombs.clear();
+            nextBombId = 1;
+            bombSequence = 0;
+            lastBombBody.clear();
             phase = Phase::Loading;
             slots[0]->loaded = slots[1]->loaded = false;
             loadingDeadline = Clock::now() + std::chrono::seconds(kLoadingTimeoutSeconds);
@@ -270,9 +331,11 @@ public:
         if (slots[0]->loaded && slots[1]->loaded) {
             phase = Phase::Playing; // Exactly one transition/broadcast, including duplicate LOADED.
             moveTick = 1;
+            gameEpoch = Clock::now();
             nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);
             Broadcast(PacketType::SC_MATCH_START, {}, matchId);
             BroadcastPlayers();
+            BroadcastBombs(0);
             std::printf("SC_MATCH_START: match=%u\n", unsigned(matchId));
         }
     }
@@ -344,7 +407,10 @@ public:
                 std::printf("Player %d -> %s, sequence=%u\n", client.playerId,
                     InputDirectionText(input.directionMask), static_cast<unsigned>(input.sequence));
             } else if (IsPlaying() && packet.header.matchId == matchId) {
-                players[client.playerId - 1].AcceptInput(input);
+                if (players[client.playerId - 1].AcceptInput(input) && input.placeBomb) {
+                    if (pendingBombs.size() >= 256) Reject(client, ErrorCode::BadRequest);
+                    else pendingBombs.push_back(client.playerId);
+                }
             }
             return;
         }

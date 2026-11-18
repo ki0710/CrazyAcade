@@ -1,6 +1,7 @@
 #include"Bomb.h"
 #include "BoardRender.h"
 #include "ResourceManager.h"
+#include <algorithm>
 bool Bomb::make_Bomb(const Player& player, Board board[MAP_TILES][MAP_TILES])
 {
     const int col = player.GetX();
@@ -22,6 +23,18 @@ bool Bomb::make_Bomb(const Player& player, Board board[MAP_TILES][MAP_TILES])
     this->is_collision_owner = false;
     board[row][col].obstacle = 9;
     return true;
+}
+
+void Bomb::ApplyOnlineState(int col, int row, int value, int frame,
+                           int left, int right, int up, int down)
+{
+    *this = Bomb{};
+    pos = GetBoardScreenPosition(col, row);
+    logicalPos = {row, col}; // Preserve the local Bomb storage convention.
+    state = value;
+    time = frame;
+    reachLeft = left; reachRight = right; reachUp = up; reachDown = down;
+    reach = (std::max)((std::max)(left, right), (std::max)(up, down));
 }
 
 bool Bomb::tick_Bomb()

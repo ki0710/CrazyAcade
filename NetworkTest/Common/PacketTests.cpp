@@ -104,7 +104,7 @@ static void TestPlayerMovement() {
     PacketHeader header;
     assert(DecodeHeader(wire.data(), wire.size(), header) &&
            header.matchId == 3 && header.packetType == PacketType::SC_PLAYER_STATE);
-    assert(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 10}));
+    assert(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 11}));
     std::cout << "Server movement rules and SC_PLAYER_STATE wire tests passed.\n";
 }
 
@@ -203,13 +203,13 @@ int main() {
     for (std::uint8_t direction : {kInputUp, kInputDown, kInputLeft, kInputRight, kInputNone}) {
         for (std::uint32_t sequence : {0u, 1u, 0x12345678u, 0xFFFFFFFFu}) {
             const auto payload = InputPayload(direction, sequence);
-            assert(payload.size() == 5);
+            assert(payload.size() == 6);
             std::vector<std::uint8_t> frame;
             assert(EncodePacket(PacketType::CS_INPUT, 0, payload, frame));
-            assert(frame.size() == 15 && frame[3] == 15 && frame[5] == 8);
+            assert(frame.size() == 16 && frame[3] == 16 && frame[5] == 8);
             assert(frame[10] == direction && frame[11] == (sequence >> 24) &&
                    frame[12] == ((sequence >> 16) & 0xFF) &&
-                   frame[13] == ((sequence >> 8) & 0xFF) && frame[14] == (sequence & 0xFF));
+                   frame[13] == ((sequence >> 8) & 0xFF) && frame[14] == (sequence & 0xFF) && frame[15] == 0);
             for (std::size_t split = 0; split <= frame.size(); ++split) {
                 ReceiveBuffer buffer;
                 assert(buffer.Append(frame.data(), split));
@@ -231,12 +231,12 @@ int main() {
                            direction == 4 || direction == 8;
         const auto mask = static_cast<std::uint8_t>(direction);
         InputData input{kInputRight, 99};
-        assert(ReadInputPayload({mask, 0, 0, 0, 1}, input) == valid);
+        assert(ReadInputPayload({mask, 0, 0, 0, 1, 0}, input) == valid);
         assert(!InputPayload(mask, 1).empty() == valid);
         if (!valid) assert(input.directionMask == kInputRight && input.sequence == 99);
     }
     for (std::size_t size = 0; size <= 10; ++size) {
-        if (size == 5) continue;
+        if (size == 6) continue;
         InputData input{kInputRight, 99};
         assert(!ReadInputPayload(std::vector<std::uint8_t>(size, 0), input));
         assert(input.directionMask == kInputRight && input.sequence == 99);
