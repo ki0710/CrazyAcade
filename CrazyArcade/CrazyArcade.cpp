@@ -27,9 +27,12 @@ static int GetMovementDirection(const bool* keys, int upKey, int downKey, int le
     return DIR_NONE;
 }
 
+static bool IsWasdKey(WPARAM key) {
+    return key == 'W' || key == 'S' || key == 'A' || key == 'D';
+}
+
 static bool IsMovementKey(WPARAM key) {
-    return key == 'W' || key == 'S' || key == 'A' || key == 'D' ||
-        key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
+    return IsWasdKey(key) || key == VK_UP || key == VK_DOWN || key == VK_LEFT || key == VK_RIGHT;
 }
 
 static std::unique_ptr<OnlineConnection> onlineConnection;
@@ -80,7 +83,7 @@ static void ApplyOnlinePosition(Player& player, const network::PlayerPosition& p
     player.SetDir(direction);
 }
 
-void DrawOutlinedText(HDC hdc, int x, int y, const wchar_t* text) {
+void DrawOutlinedText(HDC hdc, int x, int y, const wchar_t* text, bool centered = false) {
     // 폰트 생성 (크고 두꺼운 글씨)
     HFONT hFont = CreateFont(
         48, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
@@ -90,13 +93,19 @@ void DrawOutlinedText(HDC hdc, int x, int y, const wchar_t* text) {
     );
 
     HFONT oldFont = (HFONT)SelectObject(hdc, hFont);
+    const int length = static_cast<int>(wcslen(text));
+    if (centered) {
+        SIZE extent{};
+        if (GetTextExtentPoint32(hdc, text, length, &extent))
+            x -= extent.cx / 2;
+    }
 
     // 배경 투명하게 설정
     SetBkMode(hdc, TRANSPARENT);
 
     // 외곽선(Stroke)을 위한 경로 시작
     BeginPath(hdc);
-    TextOut(hdc, x, y, text, wcslen(text));
+    TextOut(hdc, x, y, text, length);
     EndPath(hdc);
 
     // 외곽선 색
@@ -222,6 +231,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static bool onlinePlaying = false;
     static std::uint8_t sentDirection = network::kInputNone;
     static std::vector<std::uint8_t> roomState;
+    static int requestedColor = -1; // Input cursor for presses before the server responds.
     static network::MapItemState onlineMap;
     static network::BombFrame onlineBombFrame;
 
@@ -249,8 +259,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         };
         const auto sendDirection = [&](bool placeBomb = false) {
             if (!onlinePlaying) return;
-            const int direction = onlinePlayerId == 1 ? GetMovementDirection(keyStates, 'W', 'S', 'A', 'D') :
-                GetMovementDirection(keyStates, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT);
+            const int direction = GetMovementDirection(keyStates, 'W', 'S', 'A', 'D');
             const auto mask = MovementMask(direction);
             if (mask == sentDirection && !placeBomb) return;
             if (inputSequence == (std::numeric_limits<std::uint32_t>::max)()) {
@@ -267,7 +276,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             const auto title = L"CrazyArcade Online | P" + std::to_wstring(onlinePlayerId) +
                 L" | " + std::to_wstring(roomState[0]) + L"/2 | map " + std::to_wstring(roomState[3]) +
                 L" | ready " + std::to_wstring(roomState[1]) + L"/" + std::to_wstring(roomState[2]) +
-                L" | 1-3 map, Z/V/B/N/M/J/K color, R ready, C cancel";
+                (roomState[6] == onlinePlayerId ? L" | 1-3 map, " : L" | ") +
+                L"\u2190/\u2192 color, R ready, C cancel";
             SetWindowText(hWnd, title.c_str());
         };
 
@@ -281,32 +291,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         case WM_KEYDOWN:
         case WM_KEYUP:
-            if (onlinePlaying && msg == WM_KEYDOWN && !(lParam & (1L << 30)) &&
-                ((onlinePlayerId == 1 && wParam == VK_SPACE) ||
-                 (onlinePlayerId == 2 && wParam == VK_RETURN))) {
-                sendDirection(true);
-                return 0;
-            }
-            if (IsMovementKey(wParam)) {
-                if (onlinePlaying) {
+            if (onlinePlaying) {
+                if (IsWasdKey(wParam)) {
                     keyStates[wParam] = msg == WM_KEYDOWN;
                     sendDirection();
+                } else if (wParam == VK_SPACE && msg == WM_KEYDOWN && !(lParam & (1L << 30))) {
+                    sendDirection(true);
                 }
                 return 0;
             }
-            if (msg == WM_KEYDOWN && onlinePlayerId && !onlinePlaying && !onlineMatchId &&
-                !(lParam & (1L << 30))) {
-                if (wParam == 'R' || wParam == 'C') {
-                    send(PacketType::CS_READY, 0, {static_cast<std::uint8_t>(wParam == 'R')});
-                } else if (wParam >= '1' && wParam <= '3') {
+            if (msg != WM_KEYDOWN || roomState.empty() || game_end || (lParam & (1L << 30))) return 0;
+            if (wParam == 'C' || (!onlineMatchId && wParam == 'R')) {
+                send(PacketType::CS_READY, 0, {static_cast<std::uint8_t>(wParam == 'R')});
+            } else if (!onlineMatchId) {
+                if (wParam >= '1' && wParam <= '3' && roomState[6] == onlinePlayerId) {
                     send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Map),
                                                    static_cast<std::uint8_t>(wParam - '0')});
-                } else {
-                    const std::wstring keys = L"ZVBNMJK";
-                    const auto color = keys.find(static_cast<wchar_t>(wParam));
-                    if (color != std::wstring::npos)
-                        send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Color),
-                                                       static_cast<std::uint8_t>(color)});
+                } else if (wParam == VK_LEFT || wParam == VK_RIGHT) {
+                    const int current = requestedColor < 0 ? roomState[3 + onlinePlayerId] : requestedColor;
+                    const auto color = static_cast<std::uint8_t>((current + (wParam == VK_LEFT ? 6 : 1)) % 7);
+                    if (send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Color), color}))
+                        requestedColor = color;
                 }
             }
             return 0;
@@ -333,7 +338,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     invalid = id || !onlinePlayerId || !ValidRoomStatePayload(payload);
                     if (!invalid) {
                         roomState = payload;
-                        if (!onlineMatchId) showLobby();
+                        if (!onlineMatchId) {
+                            showLobby();
+                            redraw = true;
+                        }
                     }
                     break;
                 case PacketType::SC_SNAPSHOT: {
@@ -342,6 +350,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (invalid) break;
                     clearOnlineDisplay();
                     onlineMatchId = id;
+                    requestedColor = -1;
                     playerTick = inputSequence = 0;
                     sentDirection = kInputNone;
                     for (bool& key : keyStates) key = false;
@@ -352,7 +361,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     InitOnlinePlayer(p2, 2, onlineMap.stage, roomState[5], onlineMap.abilities[1]);
                     ice = onlineMap.ice;
                     p1currentTime = p2currentTime = 30;
-                    SetWindowText(hWnd, L"CrazyArcade Online | Map loaded, waiting for both players...");
+                    SetWindowText(hWnd, L"CrazyArcade Online | Waiting for both players, C cancel");
                     send(PacketType::CS_LOADED, onlineMatchId, {});
                     break;
                 }
@@ -373,8 +382,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (!selected_stage) {
                         selected_stage = onlineMap.stage;
                         PlaySound(nullptr, nullptr, 0);
-                        SetWindowText(hWnd, onlinePlayerId == 1 ? L"CrazyArcade Online | P1 (WASD)" :
-                                                                  L"CrazyArcade Online | P2 (arrows)");
+                        const auto title = L"CrazyArcade Online | P" + std::to_wstring(onlinePlayerId) +
+                            L" (WASD + Space)";
+                        SetWindowText(hWnd, title.c_str());
                     }
                     redraw = true;
                     break;
@@ -1045,21 +1055,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 					DeleteObject(selectStageBitmap);
 
                     //체크표시 그리기
-					HBITMAP p1CheckBitmap = LoadBitmap(g_hInst, MAKEINTRESOURCE(IDB_BITMAP_P1_CHECK));
-					HDC p1CheckDC = CreateCompatibleDC(mem);
-					HBITMAP oldP1CheckBitmap = (HBITMAP)SelectObject(p1CheckDC, p1CheckBitmap);
-                    TransparentBlt(mem, p1_check_color_pos, 670, 100, 50, p1CheckDC, 0, 0, 224, 150, RGB(255,0,255));
-					HBITMAP p2CheckBitmap = LoadBitmap(g_hInst, MAKEINTRESOURCE(IDB_BITMAP_P2_CHECK));
-					HDC p2CheckDC = CreateCompatibleDC(mem);
-					HBITMAP oldP2CheckBitmap = (HBITMAP)SelectObject(p2CheckDC, p2CheckBitmap);
-                    TransparentBlt(mem, p2_check_color_pos, 640, 100, 50, p2CheckDC, 0, 0, 224, 150, RGB(255, 0, 255));
-
-					DeleteDC(selectStageDC);
-                    DeleteObject(p1CheckBitmap);
-					DeleteObject(p2CheckBitmap);
-
-					DeleteDC(p1CheckDC);
-					DeleteDC(p2CheckDC);
+                    constexpr int checkWidth = 100, checkHeight = 50;
+                    const auto drawCheck = [&](int id, int x, int y) {
+                        HBITMAP bitmap = LoadBitmap(g_hInst, MAKEINTRESOURCE(id));
+                        HBITMAP oldBitmap = (HBITMAP)SelectObject(selectStageDC, bitmap);
+                        TransparentBlt(mem, x, y, checkWidth, checkHeight, selectStageDC,
+                            0, 0, 224, 150, RGB(255, 0, 255));
+                        SelectObject(selectStageDC, oldBitmap);
+                        DeleteObject(bitmap);
+                    };
+                    if (onlineConnection) {
+                        if (!roomState.empty()) {
+                            // Swatch centers in the stage selection bitmap, in color-index order.
+                            constexpr int colorCenters[] = {264, 421, 570, 730, 885, 1040, 1195};
+                            const int centerX = colorCenters[roomState[3 + onlinePlayerId]];
+                            drawCheck(onlinePlayerId == 1 ? IDB_BITMAP_P1_CHECK : IDB_BITMAP_P2_CHECK,
+                                centerX - checkWidth / 2, 738 - checkHeight / 2);
+                        }
+                    } else {
+                        drawCheck(IDB_BITMAP_P1_CHECK, p1_check_color_pos, 670);
+                        drawCheck(IDB_BITMAP_P2_CHECK, p2_check_color_pos, 640);
+                    }
+                    DeleteDC(selectStageDC);
                 }
 				else if (selected_stage >= 1) {
                     //공통UI 출력
@@ -1223,7 +1240,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 HBITMAP gameEndBitmap = LoadBitmap(g_hInst, MAKEINTRESOURCE(IDB_BITMAP_GAME_END));
                 HDC gameEndDC = CreateCompatibleDC(mem);
                 HBITMAP oldGameEndBitmap = (HBITMAP)SelectObject(gameEndDC, gameEndBitmap);
-                if (game_winner == 1) {
+                RECT client{};
+                GetClientRect(hWnd, &client);
+                const int resultCenterX = (std::min)(client.right, 1500L) / 2;
+                if (game_winner == static_cast<int>(IceResult::Draw)) {
+                    DrawOutlinedText(mem, resultCenterX, 400, L"무승부", true);
+                } else if (onlineConnection) {
+                    constexpr int bannerWidth = 348, bannerHeight = 65;
+                    const int sourceY = game_winner == onlinePlayerId ? bannerHeight : 0;
+                    TransparentBlt(mem, resultCenterX - bannerWidth / 2, 400, bannerWidth, bannerHeight,
+                        gameEndDC, 0, sourceY, bannerWidth, bannerHeight, RGB(255, 0, 255));
+                } else if (game_winner == 1) {
 					TransparentBlt(mem, 1100, 400, 348, 65, gameEndDC, 0, 0, 348, 65, RGB(255, 0, 255));
                     TransparentBlt(mem, 50, 400, 348, 65, gameEndDC, 0, 65, 348, 65, RGB(255, 0, 255));
 				}
@@ -1233,9 +1260,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     TransparentBlt(mem, 1100, 400, 348, 65, gameEndDC, 0, 65, 348, 65, RGB(255, 0, 255));
                 }
               
-                if (game_winner == static_cast<int>(IceResult::Draw)) {
-                    DrawOutlinedText(mem, 550, 400, L"무승부");
-                }
                 if (onlineConnection)
                     DrawOutlinedText(mem, 400, 600, L"온라인 재경기는 아직 지원하지 않습니다.");
                 else
