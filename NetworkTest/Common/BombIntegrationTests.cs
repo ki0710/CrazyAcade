@@ -35,7 +35,9 @@ public static class BombIntegrationTests
                 Send(a,15,0,new byte[]{1,3}); Receive(a,3,0); Receive(b,3,0);
                 for (int attempt=0; attempt<20; ++attempt) {
                     Send(a,11,0,new byte[]{1}); Receive(a,3,0); Receive(b,3,0);
-                    Send(b,11,0,new byte[]{1}); Receive(a,3,0); Receive(b,3,0);
+                    if (attempt == 0) {
+                        Send(b,11,0,new byte[]{1}); Receive(a,3,0); Receive(b,3,0);
+                    }
                     ++match;
                     byte[] map=Receive(a,6,match), other=Receive(b,6,match);
                     Check(Same(map,other),"initial maps differ");
@@ -43,7 +45,9 @@ public static class BombIntegrationTests
                     Route = FindRoute(map);
                     if (!needRoute || Route != null) break;
                     Send(a,11,0,new byte[]{0}); Receive(a,14,match); Receive(b,14,match);
-                    Receive(a,3,0); Receive(b,3,0);
+                    byte[] room=Receive(a,3,0), otherRoom=Receive(b,3,0);
+                    Check(Same(room,otherRoom) && room[1]==0 && room[2]==1,
+                          "Ice map retry must preserve the peer's ready flag");
                 }
                 Check(!needRoute || Route != null,"no walkable Ice route in 20 randomized maps");
                 // Loading input must never place a Bomb or consume the in-match sequence.

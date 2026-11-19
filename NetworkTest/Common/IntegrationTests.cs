@@ -174,8 +174,17 @@ public static class NetworkIntegrationTests
             Ready(first, first, second, "C", "0,0");
             Ready(second, first, second, "R", "0,1");
             Ready(first, first, second, "R", "1,1");
-            Ready(second, first, second, "c", "0,0");
-            Ready(first, first, second, "r", "1,0");
+            first.Wait("SC_SNAPSHOT:"); second.Wait("SC_SNAPSHOT:");
+            int cancelMarkA = first.Mark, cancelMarkB = second.Mark;
+            Ready(first, first, second, "C", "0,1");
+            first.Wait("SC_MATCH_CANCEL: match=1 reason=3", cancelMarkA);
+            second.Wait("SC_MATCH_CANCEL: match=1 reason=3", cancelMarkB);
+            Ready(first, first, second, "r", "1,1");
+            first.Wait("map=20x20 match=2"); second.Wait("map=20x20 match=2");
+            cancelMarkA = first.Mark; cancelMarkB = second.Mark;
+            Ready(second, first, second, "c", "1,0");
+            first.Wait("SC_MATCH_CANCEL: match=2 reason=3", cancelMarkA);
+            second.Wait("SC_MATCH_CANCEL: match=2 reason=3", cancelMarkB);
             Console.WriteLine("PASS: ready/cancel synchronized at both real clients for both player IDs");
             App third = new App(Path.Combine(buildDirectory, "Client.exe")); apps.Add(third);
             third.Wait("SC_ERROR: Room full"); third.Exited(2);
@@ -434,6 +443,8 @@ public static class NetworkIntegrationTests
                     int a = first.Mark, b = second.Mark;
                     first.Keys("z1"); // Same color/map must not reset ready or broadcast.
                     first.Count("SC_ROOM_STATE", 0, a); second.Count("SC_ROOM_STATE", 0, b);
+                    Selection(second, first, second, "K", "ready=1,0 map=1 colors=0,6 host=1");
+                    Selection(second, first, second, "z", "ready=1,0 map=1 colors=0,0 host=1");
                     Selection(second, first, second, "V", "ready=1,0 map=1 colors=0,1 host=1");
                     Selection(first, first, second, "b", "ready=0,0 map=1 colors=2,1 host=1");
                     Ready(second, first, second, "r", "0,1");
@@ -570,8 +581,18 @@ public static class NetworkIntegrationTests
                     server.Count("Loading:", 0);
                     Send(a, 15, 0, 1, 1); Receive(a, 3); Receive(b, 3);
                     Console.WriteLine("PASS: actual map change clears both ready flags before loading");
+
+                    Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                    byte[] color = Frame(15, 0, new byte[] {2, 6});
+                    Buffer.BlockCopy(color, 0, merged, ready.Length, color.Length);
+                    a.Write(merged, 0, merged.Length);
+                    CheckRoomState(Receive(a, 3), 2, 1, 1); CheckRoomState(Receive(b, 3), 2, 1, 1);
+                    CheckRoomState(Receive(a, 3), 2, 0, 1, 1, 6); CheckRoomState(Receive(b, 3), 2, 0, 1, 1, 6);
+                    server.Count("Loading:", 0);
+                    Send(b, 11, 0, 0); Receive(a, 3); Receive(b, 3);
+                    Console.WriteLine("PASS: actual color change clears only the sender's ready flag before loading");
                     for (uint id = 1; id <= 2; ++id) {
-                        Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
+                        if (id == 1) { Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3); }
                         Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                         byte[] snapshotA = Receive(a, 6, id), snapshotB = Receive(b, 6, id);
                         Check(Convert.ToBase64String(snapshotA) == Convert.ToBase64String(snapshotB),
@@ -581,8 +602,8 @@ public static class NetworkIntegrationTests
                             Send(b, 11, 0, 0);
                             Check(Receive(a, 14, id)[0] == 3, "Expected unready cancellation");
                             Receive(b, 14, id);
-                            CheckRoomState(Receive(a, 3), 2, 0, 0);
-                            CheckRoomState(Receive(b, 3), 2, 0, 0);
+                            CheckRoomState(Receive(a, 3), 2, 1, 0, 1, 6);
+                            CheckRoomState(Receive(b, 3), 2, 1, 0, 1, 6);
                             Send(b, 12, id); // Late completion while back in lobby.
                         } else {
                             Send(a, 12, 1); Send(a, 12, 1); // Previous attempt cannot load P1.

@@ -51,13 +51,14 @@ Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
 127.0.0.1:9000; launching without arguments keeps the local game.
 
 The window title shows the assigned slot and readiness. The host selects
-1/2/3 (Forest/City/Ice); either player may select its own color with
-Z/V/B/N/M/J/K. Both press R to ready (C cancels before start).
+1/2/3 (Forest/City/Ice). Left and Right cycle each player's own seven colors;
+the check mark follows the color confirmed by the server. R readies the local
+player, and C cancels their readiness before the match starts.
 The game applies the shared map snapshot before automatically sending
-CS_LOADED. After both load, P1 uses WASD and P2 uses the arrow keys.
+CS_LOADED. After both load, both players use WASD to move and Space to place a Bomb.
 Releasing movement keys or losing focus sends NONE; an active tile step is
-allowed to finish. P1 presses Space and P2 presses Enter to request one Bomb
-on the first key-down (autorepeat is ignored). Placement uses the server's
+allowed to finish. Space requests one Bomb on the first key-down (autorepeat
+is ignored). Placement uses the server's
 last completed tile, preserves the current direction, and is blocked by
 occupied cells and the owner's active Bomb limit (including visible blasts).
 Bombs, obstacle changes and Ice damage/results now come from the server.
@@ -293,8 +294,10 @@ disconnect handling on the select loop; the deadline is checked before start.
 Match IDs increase for this server lifetime and are never reused. A well-formed
 LOADED for an older/canceled/started match is ignored, even during a new attempt.
 Zero/future IDs, nonempty payloads and unapproved senders receive BadRequest.
-The server refuses ID exhaustion rather than wrapping. Ready repeats are harmless;
-C during Loading cancels for both. Ready commands during Playing are ignored.
+The server refuses ID exhaustion rather than wrapping. Ready repeats are harmless.
+C during Loading cancels the pending match for both clients and clears both
+loaded flags. Only the sender loses their ready flag. Ready commands during
+Playing are ignored.
 Departure during Playing also returns survivors to the lobby in this console test.
 
 The integration harness additionally checks one ready waits, one/duplicate
@@ -513,3 +516,30 @@ It never changes the server world through a testing packet.
 - Report text: Actual-game movement synchronization required November 17.
   Bomb/Ice integration was completed November 18, with two-PC joint testing
   rescheduled to November 19.
+
+## Project Progress Report notes: November 19
+
+- Related plan: 3-3, 3-5, 6, 8-2.
+- Original plan: each client controls its own Player and sends its own ready
+  status. Each Player owns its color; the host owns map selection. The schedule
+  did not list a separate pass for usability corrections after the joint test.
+- Joint test findings: movement, Bombs, Ice damage and wins/losses worked across
+  two PCs. The lobby check used local positions, online controls differed by
+  slot, draw text was off center, and canceling during Loading cleared both
+  ready flags. A live draw was not confirmed in that joint test.
+- Changes: Left/Right cycle seven colors, and the check follows the local
+  Player's server-confirmed color. Both online slots use WASD/Space. Each online
+  result uses the visible canvas center. Canceling a pending match preserves
+  the other Player's readiness. Color changes clear only the sender's ready
+  flag, and host map changes clear both flags.
+- Reason and benefit: the UI reflects the room state and controls behave the
+  same on either PC, while the server keeps the existing Player/host authority.
+- Caution: C can cancel readiness until the server starts the match. Canceling
+  during Loading invalidates that attempt and both load confirmations. The
+  retained ready flag does not count as confirmation of the next snapshot.
+- Schedule impact: this pass follows the November 19 joint test and precedes
+  Forest/City work. The observed input lag is tracked separately.
+- Report text: The November 19 two-PC test verified core network gameplay.
+  The follow-up standardized online controls, fixed server-confirmed color
+  indication and result alignment, and corrected readiness cancellation before
+  the next theme work.

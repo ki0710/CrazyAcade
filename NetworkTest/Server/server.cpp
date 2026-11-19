@@ -202,7 +202,11 @@ public:
         bombs.clear();
         pendingBombs.clear();
         phase = Phase::Lobby;
-        for (auto* slot : slots) if (slot) { slot->ready = false; slot->loaded = false; }
+        for (auto* slot : slots) {
+            if (!slot) continue;
+            if (reason != CancelReason::Unready) slot->ready = false;
+            slot->loaded = false;
+        }
         Broadcast(PacketType::SC_MATCH_CANCEL, {static_cast<std::uint8_t>(reason)}, matchId);
         std::printf("SC_MATCH_CANCEL: match=%u reason=%u\n", unsigned(matchId), unsigned(reason));
         BroadcastState();
@@ -423,7 +427,11 @@ public:
                 return;
             }
             if (client.ready != ready) {
-                if (phase == Phase::Loading && !ready) { Cancel(CancelReason::Unready); return; }
+                if (phase == Phase::Loading && !ready) {
+                    client.ready = false;
+                    Cancel(CancelReason::Unready);
+                    return;
+                }
                 if (phase != Phase::Lobby) return;
                 client.ready = ready;
                 BroadcastState();
