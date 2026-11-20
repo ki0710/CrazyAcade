@@ -1,6 +1,7 @@
 #include "MapItemSync.h"
 #include "Protocol.h"
 #include <cmath>
+#include <limits>
 
 namespace network {
 namespace {

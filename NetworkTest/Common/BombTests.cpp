@@ -14,6 +14,10 @@ static MovingPlayer At(int col, int row) {
 }
 
 int main() {
+    int apples = 2;
+    Check(CollectForestApple(apples) && apples == 3);
+    Check(!CollectForestApple(apples) && apples == 3);
+    Check(LoseForestApples(apples) && CollectForestApple(apples) && apples == 1);
     Board board[MAP_TILES][MAP_TILES]{};
     MovingPlayer players[2] = {At(7, 11), At(13, 5)};
     ItemAbilities ability;

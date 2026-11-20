@@ -1,5 +1,6 @@
 #pragma once
-#include <limits>
+
+constexpr int kForestCarryLimit = 3;
 
 struct ForestState {
     int carried[2] = {0, 0};
@@ -7,7 +8,7 @@ struct ForestState {
 
 // A confirmed tree hit awards the bomb owner one carried apple.
 inline bool CollectForestApple(int& carried) {
-    if (carried < 0 || carried == (std::numeric_limits<int>::max)()) return false;
+    if (carried < 0 || carried >= kForestCarryLimit) return false;
     ++carried;
     return true;
 }
