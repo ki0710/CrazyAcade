@@ -1,7 +1,6 @@
 #include "MapItemSync.h"
 #include "Protocol.h"
 #include <cmath>
-#include <limits>
 
 namespace network {
 namespace {
@@ -12,11 +11,23 @@ constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
 constexpr std::size_t kSnapshotSize = 1 + MAP_TILES * MAP_TILES * kCellSize + 2 * kAbilitySize;
 constexpr std::size_t kIceStateSize = 3;
-constexpr std::size_t kForestStateSize = 8;
+// Two existing uint32 carried counts, two uint8 basket totals, and one uint8 winner.
+constexpr std::size_t kForestStateSize = 11;
+
+bool ValidForestState(const ForestState& state) {
+    for (int i = 0; i < 2; ++i) {
+        if (state.carried[i] < 0 || state.carried[i] > kForestCarryLimit ||
+            state.deposited[i] < 0 || state.deposited[i] >= kForestWinningTotal + kForestCarryLimit)
+            return false;
+    }
+    if (state.winner < 0 || state.winner > 2) return false;
+    if (state.winner) return state.deposited[state.winner - 1] >= kForestWinningTotal;
+    return state.deposited[0] < kForestWinningTotal && state.deposited[1] < kForestWinningTotal;
+}
 
 bool ReadAppleCount(const std::uint8_t* p, int& carried) {
     const auto value = (std::uint32_t(PayloadWord(p)) << 16) | PayloadWord(p + 2);
-    if (value > static_cast<std::uint32_t>((std::numeric_limits<int>::max)())) return false;
+    if (value > kForestCarryLimit) return false;
     carried = static_cast<int>(value);
     return true;
 }
@@ -24,6 +35,23 @@ bool ReadAppleCount(const std::uint8_t* p, int& carried) {
 bool ReadForestState(const std::uint8_t* p, ForestState& state) {
     ForestState decoded;
     if (!ReadAppleCount(p, decoded.carried[0]) || !ReadAppleCount(p + 4, decoded.carried[1])) return false;
+    decoded.deposited[0] = p[8];
+    decoded.deposited[1] = p[9];
+    decoded.winner = p[10];
+    if (!ValidForestState(decoded)) return false;
+    state = decoded;
+    return true;
+}
+
+bool ApplyForestUpdate(const Packet& packet, ForestState& state) {
+    ForestState decoded;
+    if (packet.payload.size() != kForestStateSize || !ReadForestState(packet.payload.data(), decoded)) return false;
+    if (packet.header.packetType == PacketType::SC_MATCH_END && !decoded.winner) return false;
+    if (state.winner) {
+        if (decoded.winner != state.winner) return false;
+        for (int i = 0; i < 2; ++i)
+            if (decoded.carried[i] != state.carried[i] || decoded.deposited[i] != state.deposited[i]) return false;
+    }
     state = decoded;
     return true;
 }
@@ -137,7 +165,8 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state) {
     if (state.stage == 0 || payload.empty()) return false;
     if (payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Gained) ||
         payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Lost)) {
-        if (state.stage != 1 || payload.size() != 6 || payload[1] < 1 || payload[1] > 2) return false;
+        if (state.stage != 1 || state.forest.winner || payload.size() != 6 ||
+            payload[1] < 1 || payload[1] > 2) return false;
         int carried;
         if (!ReadAppleCount(payload.data() + 2, carried) ||
             ((payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Lost)) != (carried == 0))) return false;
@@ -205,17 +234,20 @@ std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state) {
 }
 
 std::vector<std::uint8_t> EncodeForestState(const ForestState& state) {
+    if (!ValidForestState(state)) return {};
     std::vector<std::uint8_t> payload;
     for (int carried : state.carried) {
-        if (carried < 0) return {};
         AppendWord(payload, carried >> 16);
         AppendWord(payload, carried);
     }
+    payload.push_back(static_cast<std::uint8_t>(state.deposited[0]));
+    payload.push_back(static_cast<std::uint8_t>(state.deposited[1]));
+    payload.push_back(static_cast<std::uint8_t>(state.winner));
     return payload;
 }
 
 std::vector<std::uint8_t> EncodeForestAppleEvent(ForestAppleEvent kind, int playerId, int carried) {
-    if (playerId < 1 || playerId > 2 || carried < 0 ||
+    if (playerId < 1 || playerId > 2 || carried < 0 || carried > kForestCarryLimit ||
         (kind != ForestAppleEvent::Gained && kind != ForestAppleEvent::Lost) ||
         ((kind == ForestAppleEvent::Lost) != (carried == 0))) return {};
     std::vector<std::uint8_t> payload = {static_cast<std::uint8_t>(kind), static_cast<std::uint8_t>(playerId)};
@@ -249,12 +281,10 @@ std::vector<std::uint8_t> EncodeItemCollected(
 bool ApplyMapItemPacket(const Packet& packet, MapItemState& state) {
     if (packet.header.packetType == PacketType::SC_SNAPSHOT) return ApplySnapshot(packet.payload, state);
     if (packet.header.packetType == PacketType::SC_EVENT) return ApplyEvent(packet.payload, state);
-    if (packet.header.packetType == PacketType::SC_STATE && state.stage == 1) {
-        return packet.payload.size() == kForestStateSize &&
-            ReadForestState(packet.payload.data(), state.forest);
+    if (packet.header.packetType == PacketType::SC_STATE || packet.header.packetType == PacketType::SC_MATCH_END) {
+        if (state.stage == 1) return ApplyForestUpdate(packet, state.forest);
+        return ApplyIceUpdate(packet, state);
     }
-    if (packet.header.packetType == PacketType::SC_STATE ||
-        packet.header.packetType == PacketType::SC_MATCH_END) return ApplyIceUpdate(packet, state);
     return false;
 }
 

@@ -18,6 +18,26 @@ int main() {
     Check(CollectForestApple(apples) && apples == 3);
     Check(!CollectForestApple(apples) && apples == 3);
     Check(LoseForestApples(apples) && CollectForestApple(apples) && apples == 1);
+    ForestState basketState;
+    basketState.carried[0] = 3;
+    Check(!DepositForestApples(basketState.carried[0], basketState.deposited[0], 11, 18, 8, 19));
+    Check(DepositForestApples(basketState.carried[0], basketState.deposited[0], 8, 18, 8, 19));
+    Check(!DepositForestApples(basketState.carried[0], basketState.deposited[0], 8, 18, 8, 19));
+    Check(basketState.carried[0] == 0 && basketState.deposited[0] == 3);
+    basketState.carried[0] = 1;
+    Check(LoseForestApples(basketState.carried[0]) && basketState.deposited[0] == 3);
+    basketState.deposited[0] = 10;
+    Check(EncodeForestState(basketState).empty()); // Ten deposited apples require a winner.
+    basketState.winner = 1;
+    MapItemState received;
+    received.stage = 1;
+    Packet final;
+    final.header.packetType = PacketType::SC_MATCH_END;
+    final.payload = EncodeForestState(basketState);
+    Check(final.payload.size() == 11 && ApplyMapItemPacket(final, received));
+    Check(received.forest.deposited[0] == 10 && received.forest.winner == 1);
+    final.payload[10] = 2;
+    Check(!ApplyMapItemPacket(final, received) && received.forest.winner == 1);
     Board board[MAP_TILES][MAP_TILES]{};
     MovingPlayer players[2] = {At(7, 11), At(13, 5)};
     ItemAbilities ability;
@@ -200,6 +220,6 @@ int main() {
     Check(TryPlaceBomb(bombs, next, 1, moving, ability, board, 0));
     Check(bombs[0].col == 7 && board[11][7].obstacle == 9 && board[11][8].obstacle == 0);
     Check(InputPayload(kInputRight, 3, true) == (std::vector<std::uint8_t>{8, 0, 0, 0, 3, 1}));
-    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 11}));
+    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 12}));
     std::cout << "Bomb/Ice/codecs: " << checks << " checks passed.\n";
 }

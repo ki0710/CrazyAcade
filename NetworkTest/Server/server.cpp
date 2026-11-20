@@ -161,8 +161,9 @@ public:
 
     // The combat caller supplies newly confirmed tree owners and player hits.
     // Tree awards precede damage, matching the game's explosion/hit order.
-    void ResolveForestChanges(const std::vector<int>& treeOwners, const std::vector<int>& playerIds) {
-        if (phase != Phase::Playing || mapItems.stage != 1) return;
+    bool ResolveForestChanges(const std::vector<int>& treeOwners, const std::vector<int>& playerIds) {
+        if (phase != Phase::Playing || mapItems.stage != 1) return false;
+        auto& forest = mapItems.forest;
         bool changed = false;
         for (int playerId : treeOwners) {
             if (playerId < 1 || playerId > 2) continue;
@@ -180,7 +181,15 @@ public:
                 changed = true;
             }
         }
-        if (changed) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
+        // Resolve same-tick deposits in server order (P1, then P2).
+        for (int i = 0; i < 2; ++i) {
+            const auto& cell = players[i].position.cell;
+            if (!DepositForestApples(forest.carried[i], forest.deposited[i], cell.x, cell.y,
+                                     kForestBasketColumn[i], kForestBasketRow)) continue;
+            if (!forest.winner && forest.deposited[i] >= kForestWinningTotal) forest.winner = i + 1;
+            changed = true;
+        }
+        return changed;
     }
 
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload,
@@ -273,8 +282,10 @@ public:
         const auto changes = UpdateBombs(bombs, mapItems.board, players, milliseconds,
                                         IsPlaying(), mapItems.stage == 1);
         const bool iceChanged = ResolveIceHits(changes.hits);
-        const bool ended = phase == Phase::Playing && mapItems.stage == 3 &&
-                           mapItems.ice.result != IceResult::Playing;
+        const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
+        const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
+        const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
+        const bool ended = phase == Phase::Playing && (forestWon || iceEnded);
         if (ended) {
             phase = Phase::Finished;
             pendingBombs.clear();
@@ -286,9 +297,12 @@ public:
             Broadcast(PacketType::SC_EVENT,
                       EncodeObstacleBroken(cell.x, cell.y, mapItems.board[cell.y][cell.x]), matchId);
         BroadcastBombs(milliseconds);
-        if (mapItems.stage == 1) ResolveForestChanges(changes.treeOwners, changes.hits);
+        if (forestChanged) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
         if (iceChanged) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
-        if (ended) Broadcast(PacketType::SC_MATCH_END, EncodeIceState(mapItems.ice), matchId);
+        if (ended) {
+            const auto result = forestWon ? EncodeForestState(mapItems.forest) : EncodeIceState(mapItems.ice);
+            Broadcast(PacketType::SC_MATCH_END, result, matchId);
+        }
     }
     void Tick() {
         if (phase == Phase::Lobby && BothActive() && slots[0]->ready && slots[1]->ready) {

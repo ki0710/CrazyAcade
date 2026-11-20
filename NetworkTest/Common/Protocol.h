@@ -3,7 +3,7 @@
 
 namespace network {
 constexpr std::uint16_t kGameVersion = 1;
-constexpr std::uint16_t kProtocolVersion = 11;
+constexpr std::uint16_t kProtocolVersion = 12;
 constexpr int kLoadingTimeoutSeconds = 10;
 enum class CancelReason : std::uint8_t { PeerLeft = 1, Timeout = 2, Unready = 3 };
 enum class ErrorCode : std::uint16_t { RoomFull = 1, BadRequest = 2, VersionMismatch = 3, Timeout = 4,

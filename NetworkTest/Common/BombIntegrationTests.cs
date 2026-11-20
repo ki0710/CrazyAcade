@@ -29,9 +29,9 @@ public static class BombIntegrationTests
                 Check(listening.Wait(5000) && listening.Result != null &&
                       listening.Result.Contains("Server listening"), "server startup");
                 first = Connect(); a = first.GetStream();
-                Send(a, 1, 0, new byte[]{0,1,0,11}); Receive(a,2,0); Receive(a,3,0);
+                Send(a, 1, 0, new byte[]{0,1,0,12}); Receive(a,2,0); Receive(a,3,0);
                 second = Connect(); b = second.GetStream();
-                Send(b,1,0,new byte[]{0,1,0,11}); Receive(b,2,0); Receive(b,3,0); Receive(a,3,0);
+                Send(b,1,0,new byte[]{0,1,0,12}); Receive(b,2,0); Receive(b,3,0); Receive(a,3,0);
                 Send(a,15,0,new byte[]{1,3}); Receive(a,3,0); Receive(b,3,0);
                 for (int attempt=0; attempt<20; ++attempt) {
                     Send(a,11,0,new byte[]{1}); Receive(a,3,0); Receive(b,3,0);

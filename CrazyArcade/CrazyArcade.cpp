@@ -360,6 +360,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     InitOnlinePlayer(p1, 1, onlineMap.stage, roomState[4], onlineMap.abilities[0]);
                     InitOnlinePlayer(p2, 2, onlineMap.stage, roomState[5], onlineMap.abilities[1]);
                     ice = onlineMap.ice;
+                    p1.SetCurrentApple(onlineMap.forest.carried[0]);
+                    p2.SetCurrentApple(onlineMap.forest.carried[1]);
+                    p1Applebox = onlineMap.forest.deposited[0];
+                    p2Applebox = onlineMap.forest.deposited[1];
                     p1currentTime = p2currentTime = 30;
                     SetWindowText(hWnd, L"CrazyArcade Online | Waiting for both players, C cancel");
                     send(PacketType::CS_LOADED, onlineMatchId, {});
@@ -449,10 +453,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         ice = onlineMap.ice;
                         p1.SetCurrentApple(onlineMap.forest.carried[0]);
                         p2.SetCurrentApple(onlineMap.forest.carried[1]);
+                        p1Applebox = onlineMap.forest.deposited[0];
+                        p2Applebox = onlineMap.forest.deposited[1];
                         if (packet.header.packetType == PacketType::SC_MATCH_END) {
                             onlinePlaying = false;
                             game_end = true;
-                            game_winner = static_cast<int>(ice.result);
+                            game_winner = onlineMap.stage == 1 ? onlineMap.forest.winner : static_cast<int>(ice.result);
                             SetWindowText(hWnd, game_winner == 3 ? L"CrazyArcade Online | Draw" :
                                 game_winner == 1 ? L"CrazyArcade Online | P1 wins" : L"CrazyArcade Online | P2 wins");
                         }
@@ -546,14 +552,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
         if (selected_stage == 1) {
-            p1.on_applebox(&p1, &p1Applebox, 8, 19);
-            p2.on_applebox(&p2, &p2Applebox, 11, 19);
-			if (p1Applebox >= 10) {
+            p1.on_applebox(&p1, &p1Applebox, kForestBasketColumn[0], kForestBasketRow);
+            p2.on_applebox(&p2, &p2Applebox, kForestBasketColumn[1], kForestBasketRow);
+			if (p1Applebox >= kForestWinningTotal) {
 				//p1승리 이제 win메시지 띄우고 전부 초기화
                 game_end = true;
                 game_winner = 1;
 			}
-            else if (p2Applebox >= 10) {
+            else if (p2Applebox >= kForestWinningTotal) {
                 //p2승리 이제 win메시지 띄우고 전부 초기화
                 game_end = true;
 				game_winner = 2;

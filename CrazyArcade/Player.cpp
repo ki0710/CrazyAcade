@@ -99,19 +99,7 @@ void Player::Draw_Player(HDC hdc, Player* p, int character)
 }
 void Player::on_applebox(Player* player, int* applebox, int boxX, int boxY)
 {
-    int px = player->GetX();
-    int py = player->GetY();
-
-    if ((px == boxX && py == boxY - 1) ||  // 위쪽
-        (px == boxX - 1 && py == boxY) ||  // 왼쪽
-        (px == boxX + 1 && py == boxY))    // 오른쪽
-    {
-        if (player->GetCurrentApple() > 0) {
-        
-            (*applebox) += player->GetCurrentApple();;                // 박스 수 증가
-            player->SetCurrentApple(0);
-        }
-    }
+    DepositForestApples(player->currrentApple, *applebox, player->GetX(), player->GetY(), boxX, boxY);
 }
 
 int Player::collision_item(Player* player, Board board[MAP_TILES][MAP_TILES],int& Pcurrenttime)

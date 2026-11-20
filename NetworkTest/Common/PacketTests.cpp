@@ -104,7 +104,7 @@ static void TestPlayerMovement() {
     PacketHeader header;
     assert(DecodeHeader(wire.data(), wire.size(), header) &&
            header.matchId == 3 && header.packetType == PacketType::SC_PLAYER_STATE);
-    assert(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 11}));
+    assert(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 12}));
     std::cout << "Server movement rules and SC_PLAYER_STATE wire tests passed.\n";
 }
 

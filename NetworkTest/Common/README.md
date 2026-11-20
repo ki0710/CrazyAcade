@@ -46,7 +46,7 @@ connect; subsequent communication uses nonblocking sockets.
 ## CrazyArcade online movement and Bomb/Ice combat
 
 Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
-(protocol **11**). Run Server.exe on the host, then run
+(protocol **12**). Run Server.exe on the host, then run
 `CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
 127.0.0.1:9000; launching without arguments keeps the local game.
 
@@ -116,7 +116,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (11) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (12) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -124,8 +124,8 @@ size limit. Unknown packet types and invalid lengths are rejected.
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
 | CS_INPUT | 8 | directionMask uint8, sequence uint32, placeBomb uint8 |
-| SC_STATE | 9 | ice hearts/result or Forest carried apples |
-| SC_MATCH_END | 10 | final ice hearts and result |
+| SC_STATE | 9 | ice hearts/result or Forest carried apples, basket totals and winner |
+| SC_MATCH_END | 10 | final ice or Forest state |
 | CS_READY | 11 | ready uint8 (0 cancel, 1 ready), matchId=0 |
 | CS_LOADED | 12 | empty, matchId=current snapshot ID |
 | SC_MATCH_START | 13 | empty, matchId=current snapshot ID |
@@ -151,7 +151,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 11. Once both
+Build the server and both clients together for protocol version 12. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -237,7 +237,7 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 11. Versions 1 through 10
+Build both applications together for protocol version 12. Versions 1 through 11
 are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
@@ -335,7 +335,7 @@ console task does not change game rendering or the MapItemSync snapshot payload.
 Invalid lengths, kinds, values, matchId, or unapproved senders receive the existing
 BadRequest and disconnect. A valid request without map permission, or outside
 Lobby, receives SC_ERROR code 5 (Selection denied) without disconnecting or
-changing room state. Both server and client use protocol version 11 so version-7
+changing room state. Both server and client use protocol version 12 so version-7
 clients cannot interpret the expanded ROOM_STATE accidentally.
 
 After WELCOME, use these keys without Enter (letters accept either case):
@@ -361,29 +361,24 @@ cover all 256 value/kind bytes, bad lengths, ROOM_STATE bounds, exact CS_SELECT
 wire bytes, and every two-part frame split.
 
 
-## Forest carried apples (protocol 9)
+## Forest apples and baskets (protocol 12)
 
-Forest snapshots append two big-endian uint32 carried-apple counts (P1, P2),
-making the payload 1619 bytes. Counts are nonnegative values representable by
-the game's int. Forest SC_STATE carries these same eight bytes. City and ice
-payloads keep their existing layouts; rebuild the server and both clients.
+Forest players carry up to three apples. A new tree hit awards its Bomb owner
+one apple when there is room. A player hit clears carried apples and preserves
+their basket total. Each Bomb's tree directions and player hits are processed
+once as part of the existing server combat update.
 
-SC_EVENT kind 3 means an apple was gained and kind 4 means all carried apples
-were lost. Both contain `[kind, playerId, carried uint32]`, six bytes total.
-Clients apply the server's absolute count, rather than adding an event twice.
+The server checks each player's own basket after gains and hits. P1's basket
+is at (8,19) and P2's at (11,19). Reaching the tile above or either side of that
+basket automatically transfers all carried apples. A total of ten or more wins.
+When both players qualify within the same update, the server records the first
+deposit it processes (P1, then P2) and sends both final totals before the result.
 
-The game and server use the same CollectForestApple/LoseForestApples rules.
-A new tree hit gives its bomb owner one apple immediately, using the existing
-bomb direction flags to avoid repeated awards. Own/opponent hits clear only
-the victim's carried count; they do not transfer apples or change basket totals
-or bomb capacity. Existing basket handling is not changed in this work.
-
-The combat loop calls Room::ResolveForestChanges with newly confirmed tree
-owners and newly hit players for one update, after deduplicating each bomb's
-tree directions/player hits. The room applies gains before losses, sends the
-related events and then the final carried counts. It only runs during forest
-play. The server Bomb update now supplies these confirmed hits; Forest basket
-and victory rules remain a separate integration task.
+The Forest snapshot appends the 11-byte Forest state, for 1622 payload bytes.
+SC_STATE and SC_MATCH_END use the same Forest layout. Player order is P1, P2:
+two big-endian uint32 carried counts, two uint8 basket totals, and one uint8
+winner (0 playing, 1 P1, 2 P2). Forest SC_EVENT gain/loss keeps the existing
+format. Ice and City layouts are unchanged. Build all peers with protocol 12.
 
 ## Bomb state, time and final results (protocol 11)
 
