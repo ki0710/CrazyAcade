@@ -4,6 +4,7 @@
 #include "../Common/MapItemSync.h"
 #include "../Common/PlayerMovement.h"
 #include "../Common/BombSync.h"
+#include "../Common/CriticalSection.h"
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <chrono>
@@ -16,7 +17,6 @@
 #include <atomic>
 #include <deque>
 #include <exception>
-#include <mutex>
 #include <thread>
 
 #pragma comment(lib, "ws2_32.lib")
@@ -36,7 +36,7 @@ public:
         // Bounded backpressure; never hold the lock while waiting for consumers.
         while (!stop.load()) {
             {
-                std::lock_guard<std::mutex> lock(mutex_);
+                CriticalSectionLock lock(criticalSection_);
                 if (events_.size() < 256) {
                     events_.push_back(std::move(event));
                     return true;
@@ -47,13 +47,13 @@ public:
         return false;
     }
     std::deque<ReceiveEvent> Take() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        CriticalSectionLock lock(criticalSection_);
         std::deque<ReceiveEvent> result;
         result.swap(events_);
         return result;
     }
 private:
-    std::mutex mutex_;
+    CriticalSection criticalSection_;
     std::deque<ReceiveEvent> events_;
 };
 struct Client : Session {
