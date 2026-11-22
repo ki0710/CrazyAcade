@@ -21,6 +21,39 @@ The server and client each compile their own entry point together with
 application: that test includes the socket implementation with scripted I/O.
 The build does not change the CrazyArcade Visual Studio solution.
 
+## Receive queue synchronization tests (November 22)
+
+`build.cmd` also builds and runs `ReceiveQueueTests.exe`. This standalone target
+includes the actual server implementation with its entry point renamed, so it
+tests `ReceiveQueue` and `Client::Receive` without copying them or adding test
+hooks to production. Never add this test source to the server or GUI targets.
+
+The added checks cover:
+
+- Critical-section exception unwinding and noncopyable/nonmovable ownership.
+- Four producers and one consumer exchanging 8192 events, checking exact payloads,
+  counts, capacity and FIFO order within each connection. Cross-connection order
+  is intentionally unspecified.
+- A full 256-event queue blocking a producer, allowing the consumer to drain it,
+  resuming exactly once, and canceling a waiting push without changing queued data.
+- Two barrier-released TCP senders and the real per-client receive threads,
+  verifying 2048 movement/placement input payloads and one EOF per connection.
+- Eight full-queue shutdown cycles with two live receivers, joining the threads
+  before queue/critical-section destruction. A 45-second watchdog bounds deadlocks.
+
+The loopback tests use ephemeral ports. They validate transport and queue behavior;
+they do not apply gameplay or establish multi-PC latency. Existing
+`IntegrationTests.Run` continues to check stale/duplicate sequences, movement,
+disconnect/reconnect and server shutdown. Existing `BombIntegrationTests.Run`
+checks placement consumption, replay rejection, damage and match results.
+Its `Bomb TCP checks passed` number counts runtime `Check` calls, not fixed test
+cases. Randomized map retries/route lengths, timed state updates and TCP read
+chunking change that total; success requires both scenario PASS messages and
+normal completion, not a particular count. The deterministic BombTests total
+is reported separately.
+Run both live suites using the commands below after the build. No production
+queue size, protocol, game rule or existing test assertion is changed.
+
 In separate terminals, start the server once, then two clients:
 
 ```bat

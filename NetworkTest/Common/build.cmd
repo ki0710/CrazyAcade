@@ -14,6 +14,10 @@ cl /nologo /EHsc /W4 /std:c++14 BombTests.cpp MapItemSync.cpp ..\..\CrazyArcade\
 if errorlevel 1 goto failed
 build\BombTests.exe
 if errorlevel 1 goto failed
+cl /nologo /EHsc /W4 /std:c++14 ReceiveQueueTests.cpp Packet.cpp SocketUtils.cpp MapItemSync.cpp ..\..\CrazyArcade\Board.cpp ..\..\CrazyArcade\IceState.cpp /Fe:build\ReceiveQueueTests.exe /Fo:build\ /link Ws2_32.lib
+if errorlevel 1 goto failed
+build\ReceiveQueueTests.exe
+if errorlevel 1 goto failed
 popd
 exit /b 0
 :failed
