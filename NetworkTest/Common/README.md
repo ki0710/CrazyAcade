@@ -21,6 +21,138 @@ The server and client each compile their own entry point together with
 application: that test includes the socket implementation with scripted I/O.
 The build does not change the CrazyArcade Visual Studio solution.
 
+## Broadcast stability tests (November 23)
+
+`build.cmd` also builds and runs `BroadcastTests.exe`. Like the receive-queue
+tests, it includes the actual server with its entry point renamed. Only `send`
+and its error lookup in the actual `SocketUtils.cpp` are substituted. Do not
+link that source a second time or add this test to an application target.
+
+The deterministic checks cover both recipients' exact FIFO wire bytes across
+multiple queued packets, independent short sends and repeated WSAEWOULDBLOCK
+resumption (including a packet boundary), and no resend after the queue drains.
+They fill the real 64-packet Session queue in each slot order, verify only the
+overflowed recipient is marked dead, and verify slot removal, departure
+notifications and continued broadcasts to the survivor. Reset and zero-return
+send failures are forced after a partial frame. Queued receive EOF between
+broadcast and flush checks match cancellation/notification ordering; closing
+connections are excluded. A full 256-event receive queue with a blocked producer
+must leave Broadcast and Flush operational and preserve all input events.
+A 30-second watchdog bounds deadlock regressions.
+
+The test sockets are owned real Winsock handles without receive threads;
+network outcomes are scripted, not evidence of OS TCP buffer saturation or
+two-PC timing. Existing IntegrationTests and BombIntegrationTests provide live
+TCP coverage. No protocol, gameplay rule, queue limit or production code changes
+are made for these tests.
+
+## Live TCP Broadcast tests (November 23)
+
+After `build.cmd`, run in a fresh PowerShell process with port 9000 free:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Add-Type -Path NetworkTest/Common/IntegrationTests.cs,NetworkTest/Common/BroadcastIntegrationTests.cs
+[NetworkIntegrationTests]::RunBroadcast((Join-Path (Get-Location) 'NetworkTest/Common/build'), 3)
+```
+
+The partial test class reuses IntegrationTests' existing process lifecycle,
+connection, framing, ready/loading and initial Player/Bomb comparison helpers.
+`IntegrationTests.cs` can still be compiled and run alone as before. Each repeat
+starts its own production Server.exe and two loopback TCP clients, alternating
+the slow/disconnected slot (use at least two repeats to cover both slots).
+Each socket has read/write timeouts; movement, delayed drain and departure
+receive phases each have one seven-second deadline. Process waits and cleanup
+reuse the existing bounded harness. Repetitions are limited to 1..20.
+
+One client does not read during P1's traversal of the existing unobstructed City
+lane. The other must receive multiple increasing-tick Player updates and reach
+the edge before the slow reader resumes. The delayed reader then reads at most
+three bytes at a time, with a delay once per complete packet, and compares every
+recorded header identity and payload in FIFO order. A second movement starts,
+then the slow connection is closed abortively with zero linger. The survivor
+must receive cancellation, departure and lobby updates, keep the same socket,
+and communicate with a replacement connection through a new match and movement.
+
+This validates delayed application reads and an actual TCP reset during an
+active Broadcast stream, not a client-process kill or an exact overlap with a
+server send syscall. The 4096-byte requested receive buffer and small reads do
+not prove OS buffer saturation, TCP segmentation, server partial sends or
+WSAEWOULDBLOCK. Those send outcomes remain deterministically covered by
+BroadcastTests; this live suite does not instrument or assert their occurrence.
+Bomb/Ice result checks remain in the existing BombIntegrationTests suite rather
+than being duplicated here. Production protocol and gameplay are unchanged.
+
+## Final game-state verification (November 23)
+
+Existing movement tests cover both players; BombIntegrationTests.Run covers P2
+winning and a same-tick draw. It now applies each recipient's packets to a
+separate test receiver world (tile obstacles/items, both player positions,
+Bomb IDs/occupancy, hearts and final result). Each reconstructed world is
+compared after every applied packet, in addition to the existing wire checks.
+Player bodies excluding tick, Bomb bodies excluding tick/sequence, and Ice
+state bodies must change between successive broadcasts of the same type.
+SC_MATCH_END is intentionally allowed to repeat final SC_STATE contents once.
+The initial loading Ice state and initial gameplay packets retain their contract.
+
+The new final-state scenario reuses the same Pair and adds the missing P1-win /
+P2-loss direction through three actual P2 self-hits, cleanup, unchanged NONE
+inputs and bounded quiet observations. Existing BombIntegrationTests.cs still
+compiles alone. To run the additional scenario in a fresh PowerShell process:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Add-Type -Path NetworkTest/Common/BombIntegrationTests.cs,NetworkTest/Common/GameStateIntegrationTests.cs
+$buildPath = Join-Path (Get-Location) 'NetworkTest/Common/build'
+[BombIntegrationTests]::Run($buildPath)
+[BombIntegrationTests]::RunFinalState($buildPath)
+```
+
+RunBroadcast also checks both players' initial positions/progress in match 2,
+an empty initial Bomb list, and old-match movement/placement inputs with maximum
+sequences producing no new-match updates before fresh sequence-1 gameplay.
+These receivers are test models, not the GUI renderer or its production decoder.
+Quiet checks are bounded observations, not proof of no duplicates indefinitely.
+Live socket/read/write and phase deadlines reuse the existing harness; no
+production rules or existing assertions are relaxed.
+
+### Manual GUI check (not automated visual verification)
+
+From the repository root, keep a PowerShell terminal running the server:
+
+```powershell
+& .\NetworkTest\Common\build\Server.exe
+```
+
+In another PowerShell terminal at the repository root, start two game windows:
+
+```powershell
+$guiDirectory = Join-Path (Get-Location) 'Output\bin_debug'
+1..2 | ForEach-Object {
+    Start-Process -FilePath (Join-Path $guiDirectory 'CrazyArcade.exe') -WorkingDirectory $guiDirectory -ArgumentList '--online','127.0.0.1'
+}
+```
+
+The working directory preserves the game's relative sound paths. Window titles
+identify P1/P2. The host selects 3 for Ice (recommended for damage/results),
+1 for Forest or 2 for City. Left/Right selects each player's color; R readies
+each window, C cancels before start. GUI snapshot loading sends CS_LOADED
+automatically. Both online players use WASD and Space in their focused window;
+key release or focus loss sends NONE. With one keyboard, switch focus between
+windows to test each player; this is not simultaneous two-PC input testing.
+
+Compare both views for identical positions, obstacles/items, Bomb placement,
+explosion/removal, Ice hearts and result. A stationary Ice player can self-hit
+three times to confirm the other player wins; use a fresh session for the other
+direction. For a draw, move both into the same blast area for their final heart.
+During an unfinished match close one window: the survivor should return to
+lobby. Relaunch the closed client, ready both, and check fresh positions, no
+old Bombs and normal movement. Online rematch after a completed result is not
+implemented; restart clients for another completed-match scenario. Stop the
+server with Enter after closing game windows. City combat is outside this
+verification; GUI rendering, sound, focus behavior and perceived timing still
+require observation by a person.
+
 ## Receive queue synchronization tests (November 22)
 
 `build.cmd` also builds and runs `ReceiveQueueTests.exe`. This standalone target

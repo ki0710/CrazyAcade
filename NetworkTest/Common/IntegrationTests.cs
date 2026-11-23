@@ -7,7 +7,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 
-public static class NetworkIntegrationTests
+public static partial class NetworkIntegrationTests
 {
     sealed class App : IDisposable
     {
