@@ -48,14 +48,18 @@ static std::uint8_t MovementMask(int dir) {
     }
 }
 
+static void ApplyOnlineAbilities(Player& player, const ItemAbilities& abilities) {
+    player.SetSpeed(abilities.speed);
+    player.SetBomb_distance(abilities.blastRange);
+    player.SetMaxBomb(abilities.bombLimit);
+}
+
 static void InitOnlinePlayer(Player& player, int id, int stage, int color, const ItemAbilities& abilities) {
     const auto start = PlayerStartCell(stage, id);
     player.Init_Player({start.x, start.y});
     player.SetPlayerNum(id);
     player.SetColor(color);
-    player.SetSpeed(abilities.speed);
-    player.SetBomb_distance(abilities.blastRange);
-    player.SetMaxBomb(abilities.bombLimit);
+    ApplyOnlineAbilities(player, abilities);
     if (HBITMAP original = LoadBitmap(g_hInst, MAKEINTRESOURCE(IDB_BITMAP_PLAYER))) {
         HBITMAP sprite = color ? AdjustBitmapHueWithFilter(original, color, 0, 20) : nullptr;
         if (sprite) DeleteObject(original);
@@ -254,6 +258,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             game_winner = 0;
             sentDirection = kInputNone;
             for (bool& key : keyStates) key = false;
+            for (int& count : p1_current_item) count = 0;
+            for (int& count : p2_current_item) count = 0;
             p1.SetIsHit(false);
             p2.SetIsHit(false);
         };
@@ -444,8 +450,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     break;
                 case PacketType::SC_STATE:
                 case PacketType::SC_EVENT:
-                case PacketType::SC_MATCH_END:
-                    invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap);
+                case PacketType::SC_MATCH_END: {
+                    if (packet.header.packetType == PacketType::SC_EVENT && id &&
+                        (id <= previousMatchId || (onlineMatchId && id < onlineMatchId))) break;
+                    ItemPickup pickup;
+                    invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap, &pickup);
                     if (!invalid) {
                         for (int y = 0; y < MAP_TILES; ++y)
                             for (int x = 0; x < MAP_TILES; ++x)
@@ -455,6 +464,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         p2.SetCurrentApple(onlineMap.forest.carried[1]);
                         p1Applebox = onlineMap.forest.deposited[0];
                         p2Applebox = onlineMap.forest.deposited[1];
+                        if (pickup.playerId) {
+                            auto& player = pickup.playerId == 1 ? p1 : p2;
+                            auto& itemCounts = pickup.playerId == 1 ? p1_current_item : p2_current_item;
+                            ApplyOnlineAbilities(player, onlineMap.abilities[pickup.playerId - 1]);
+                            ++itemCounts[pickup.item - 1];
+                        }
                         if (packet.header.packetType == PacketType::SC_MATCH_END) {
                             onlinePlaying = false;
                             game_end = true;
@@ -465,6 +480,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         redraw = true;
                     }
                     break;
+                }
                 case PacketType::SC_ERROR: {
                     const auto code = payload.size() == 2 ? static_cast<ErrorCode>(PayloadWord(payload.data())) :
                         static_cast<ErrorCode>(0);

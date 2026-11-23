@@ -161,7 +161,7 @@ bool ApplyIceUpdate(const Packet& packet, MapItemState& state) {
     return true;
 }
 
-bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state) {
+bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, ItemPickup* pickup) {
     if (state.stage == 0 || payload.empty()) return false;
     if (payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Gained) ||
         payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Lost)) {
@@ -188,15 +188,17 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state) {
         }
         return true;
     }
-    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize ||
-        item == 0 || cell.obstacle != 0 || (cell.item != item && cell.item != 0)) return false;
+    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize || item == 0)
+        return false;
 
     const int playerId = payload[4];
     const ItemAbilities abilities = ReadAbilities(payload.data() + 5);
     if (playerId < 1 || playerId > 2 || !ValidAbilities(abilities)) return false;
     if (cell.item == 0) return true; // The pickup was already applied.
+    if (cell.obstacle != 0 || cell.item != item) return false;
     cell.item = 0;
     state.abilities[playerId - 1] = abilities;
+    if (pickup) *pickup = {playerId, item};
     return true;
 }
 }
@@ -278,9 +280,10 @@ std::vector<std::uint8_t> EncodeItemCollected(
     return payload;
 }
 
-bool ApplyMapItemPacket(const Packet& packet, MapItemState& state) {
+bool ApplyMapItemPacket(const Packet& packet, MapItemState& state, ItemPickup* pickup) {
+    if (pickup) *pickup = {};
     if (packet.header.packetType == PacketType::SC_SNAPSHOT) return ApplySnapshot(packet.payload, state);
-    if (packet.header.packetType == PacketType::SC_EVENT) return ApplyEvent(packet.payload, state);
+    if (packet.header.packetType == PacketType::SC_EVENT) return ApplyEvent(packet.payload, state, pickup);
     if (packet.header.packetType == PacketType::SC_STATE || packet.header.packetType == PacketType::SC_MATCH_END) {
         if (state.stage == 1) return ApplyForestUpdate(packet, state.forest);
         return ApplyIceUpdate(packet, state);

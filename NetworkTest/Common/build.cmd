@@ -22,6 +22,10 @@ cl /nologo /EHsc /W4 /std:c++14 BroadcastTests.cpp Packet.cpp MapItemSync.cpp ..
 if errorlevel 1 goto failed
 build\BroadcastTests.exe
 if errorlevel 1 goto failed
+cl /nologo /EHsc /W4 /std:c++14 ForestPickupTests.cpp Packet.cpp MapItemSync.cpp ..\..\CrazyArcade\Board.cpp ..\..\CrazyArcade\IceState.cpp /Fe:build\ForestPickupTests.exe /Fo:build\ /link Ws2_32.lib
+if errorlevel 1 goto failed
+build\ForestPickupTests.exe
+if errorlevel 1 goto failed
 popd
 exit /b 0
 :failed
