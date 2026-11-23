@@ -83,6 +83,76 @@ BroadcastTests; this live suite does not instrument or assert their occurrence.
 Bomb/Ice result checks remain in the existing BombIntegrationTests suite rather
 than being duplicated here. Production protocol and gameplay are unchanged.
 
+## Final game-state verification (November 23)
+
+Existing movement tests cover both players; BombIntegrationTests.Run covers P2
+winning and a same-tick draw. It now applies each recipient's packets to a
+separate test receiver world (tile obstacles/items, both player positions,
+Bomb IDs/occupancy, hearts and final result). Each reconstructed world is
+compared after every applied packet, in addition to the existing wire checks.
+Player bodies excluding tick, Bomb bodies excluding tick/sequence, and Ice
+state bodies must change between successive broadcasts of the same type.
+SC_MATCH_END is intentionally allowed to repeat final SC_STATE contents once.
+The initial loading Ice state and initial gameplay packets retain their contract.
+
+The new final-state scenario reuses the same Pair and adds the missing P1-win /
+P2-loss direction through three actual P2 self-hits, cleanup, unchanged NONE
+inputs and bounded quiet observations. Existing BombIntegrationTests.cs still
+compiles alone. To run the additional scenario in a fresh PowerShell process:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Add-Type -Path NetworkTest/Common/BombIntegrationTests.cs,NetworkTest/Common/GameStateIntegrationTests.cs
+$buildPath = Join-Path (Get-Location) 'NetworkTest/Common/build'
+[BombIntegrationTests]::Run($buildPath)
+[BombIntegrationTests]::RunFinalState($buildPath)
+```
+
+RunBroadcast also checks both players' initial positions/progress in match 2,
+an empty initial Bomb list, and old-match movement/placement inputs with maximum
+sequences producing no new-match updates before fresh sequence-1 gameplay.
+These receivers are test models, not the GUI renderer or its production decoder.
+Quiet checks are bounded observations, not proof of no duplicates indefinitely.
+Live socket/read/write and phase deadlines reuse the existing harness; no
+production rules or existing assertions are relaxed.
+
+### Manual GUI check (not automated visual verification)
+
+From the repository root, keep a PowerShell terminal running the server:
+
+```powershell
+& .\NetworkTest\Common\build\Server.exe
+```
+
+In another PowerShell terminal at the repository root, start two game windows:
+
+```powershell
+$guiDirectory = Join-Path (Get-Location) 'Output\bin_debug'
+1..2 | ForEach-Object {
+    Start-Process -FilePath (Join-Path $guiDirectory 'CrazyArcade.exe') -WorkingDirectory $guiDirectory -ArgumentList '--online','127.0.0.1'
+}
+```
+
+The working directory preserves the game's relative sound paths. Window titles
+identify P1/P2. The host selects 3 for Ice (recommended for damage/results),
+1 for Forest or 2 for City. Left/Right selects each player's color; R readies
+each window, C cancels before start. GUI snapshot loading sends CS_LOADED
+automatically. Both online players use WASD and Space in their focused window;
+key release or focus loss sends NONE. With one keyboard, switch focus between
+windows to test each player; this is not simultaneous two-PC input testing.
+
+Compare both views for identical positions, obstacles/items, Bomb placement,
+explosion/removal, Ice hearts and result. A stationary Ice player can self-hit
+three times to confirm the other player wins; use a fresh session for the other
+direction. For a draw, move both into the same blast area for their final heart.
+During an unfinished match close one window: the survivor should return to
+lobby. Relaunch the closed client, ready both, and check fresh positions, no
+old Bombs and normal movement. Online rematch after a completed result is not
+implemented; restart clients for another completed-match scenario. Stop the
+server with Enter after closing game windows. City combat is outside this
+verification; GUI rendering, sound, focus behavior and perceived timing still
+require observation by a person.
+
 ## Receive queue synchronization tests (November 22)
 
 `build.cmd` also builds and runs `ReceiveQueueTests.exe`. This standalone target

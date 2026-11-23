@@ -141,7 +141,16 @@ public static partial class NetworkIntegrationTests
                     // Prove the survivor is still the same connection and both can start a new match.
                     NetworkStream p1 = slowId == 1 ? fresh : healthy, p2 = slowId == 1 ? healthy : fresh;
                     byte[] restarted = BroadcastStart(p1, p2, 2);
-                    Check(restarted[4] == 8 && restarted[5] == 5, "fresh match positions");
+                    Check(restarted[4] == 8 && restarted[5] == 5 && restarted[11] == 11 &&
+                          restarted[12] == 14 && restarted[8] == 0 && restarted[9] == 0 &&
+                          restarted[15] == 0 && restarted[16] == 0, "fresh match positions/progress");
+                    // Old-match input, including a high sequence and placement, must not
+                    // mutate the new world or consume either player's fresh sequence.
+                    Send(p1, 8, 1, Input(8, uint.MaxValue, true));
+                    Send(p2, 8, 1, Input(4, uint.MaxValue, true));
+                    Thread.Sleep(150);
+                    Check(replacement.Available == 0 && (slowId == 1 ? second : first).Available == 0,
+                          "previous-match input produced state in the new match");
                     // The replacement itself sends gameplay input with a fresh sequence.
                     Send(fresh, 8, 2, Input(slowId == 1 ? (byte)8 : (byte)4, 1));
                     timer.Restart();
