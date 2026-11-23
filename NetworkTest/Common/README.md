@@ -703,3 +703,45 @@ It never changes the server world through a testing packet.
   The follow-up standardized online controls, fixed server-confirmed color
   indication and result alignment, and corrected readiness cancellation before
   the next theme work.
+
+## Forest basic item pickup (November 21 work completed November 23)
+
+In Forest, the game tick checks both players' last completed cells after each
+movement step. It checks again after Bomb updates for newly exposed or released
+items. P1 is checked first if both reach a cell in the same step. The existing
+CollectBasicItem removes an exposed item and updates the owner's abilities:
+1 increases blast range, 2 increases Bomb limit, and 3 adds 0.1 speed up to 1.5.
+
+The server uses the existing protocol 12 SC_EVENT kind 2 with the cell, item,
+owner and absolute abilities. Pickups from movement precede later changes to
+Bomb occupancy. Break events retain the pre-pickup item and late pickups follow
+exposure and Bomb release. Both clients apply the event to the Board and to the
+owner's displayed Player. The HUD counts actual removals, including speed
+items at the cap. Duplicate and earlier-match events do not count, and a new
+match starts with zero pickup counts.
+
+`build.cmd` runs ForestPickupTests.exe against the production Room and codec
+with deterministic ticks. The live test uses the stock Server.exe, two TCP
+streams and real movement/Bomb inputs to expose and collect map items:
+
+```powershell
+Add-Type -Path NetworkTest/Common/IntegrationTests.cs,NetworkTest/Common/BroadcastIntegrationTests.cs,NetworkTest/Common/ForestPickupIntegrationTests.cs
+[NetworkIntegrationTests]::RunForestPickups((Join-Path (Get-Location) 'NetworkTest/Common/build'))
+```
+
+### Project Progress Report notes
+
+- Related plan: 2-6, 2-8, 3-5, 5-5, 5-6, 6, 8-2.
+- The November 21 Forest combat, abilities and apple display work was delayed
+  by a personal schedule. The November 22 shared input queue and November 23
+  Broadcast verification went ahead to keep the team schedule moving.
+- The integrated November 20 work already provides apple/basket display,
+  deposits and results. This follow-up connects only basic pickups and
+  play/display abilities, reusing the existing queues and packet format.
+- The plan describes tree hits producing apples and describes loss from an
+  opponent's Bomb. The existing game awards the Bomb owner directly on a tree
+  hit and clears carried apples on own or opponent hits. Neither rule changed.
+- The event carries changes for a live match. A later recovery snapshot will
+  need the actual accumulated pickup counts to restore the HUD. Those counts
+  cannot be inferred from capped abilities. The November 25 Forest joint test
+  can use the existing protocol 12 binaries rebuilt from this revision.
