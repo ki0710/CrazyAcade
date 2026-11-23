@@ -192,6 +192,17 @@ public:
         return changed;
     }
 
+    void CollectForestItems(std::vector<std::vector<std::uint8_t>>& events) {
+        if (mapItems.stage != 1 || phase != Phase::Playing) return;
+        for (int i = 0; i < 2; ++i) {
+            const auto& cell = players[i].position.cell;
+            if (!IsMapCell(cell.x, cell.y)) continue;
+            auto& abilities = mapItems.abilities[i];
+            const int item = CollectBasicItem(mapItems.board[cell.y][cell.x], abilities);
+            if (item) events.push_back(EncodeItemCollected(cell.x, cell.y, item, i + 1, abilities));
+        }
+    }
+
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload,
                std::uint32_t id = 0) {
         if (!client.dead && !client.closing && !client.Queue(type, payload, id)) client.dead = true;
@@ -259,6 +270,7 @@ public:
         constexpr auto interval = std::chrono::milliseconds(kMoveTickMs);
         bool changed = false;
         bool advanced = false;
+        std::vector<std::vector<std::uint8_t>> pickups;
         // Bound catch-up after a stalled process, keeping network servicing responsive.
         for (int steps = 0; steps < 5 && now >= nextMoveTick; ++steps) {
             ++moveTick;
@@ -266,6 +278,8 @@ public:
             if (IsPlaying())
                 for (int i = 0; i < 2; ++i)
                     changed |= players[i].Step(mapItems.board, mapItems.abilities[i].speed);
+            // Inspect each step's completed cells, including intermediate catch-up steps.
+            CollectForestItems(pickups);
             nextMoveTick += interval;
         }
         if (now >= nextMoveTick) nextMoveTick = now + interval;
@@ -281,6 +295,12 @@ public:
         }
         const auto changes = UpdateBombs(bombs, mapItems.board, players, milliseconds,
                                         IsPlaying(), mapItems.stage == 1);
+        // Save the exposed item before collection clears it from the server board.
+        std::vector<std::vector<std::uint8_t>> brokenEvents;
+        for (const auto& cell : changes.broken)
+            brokenEvents.push_back(EncodeObstacleBroken(cell.x, cell.y, mapItems.board[cell.y][cell.x]));
+        const auto beforeExplosion = pickups.size();
+        CollectForestItems(pickups); // Includes items exposed or freed from Bomb occupancy this tick.
         const bool iceChanged = ResolveIceHits(changes.hits);
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
@@ -293,10 +313,13 @@ public:
             CancelPlantedBombs(bombs, mapItems.board);
         }
         if (changed) BroadcastPlayers();
-        for (const auto& cell : changes.broken)
-            Broadcast(PacketType::SC_EVENT,
-                      EncodeObstacleBroken(cell.x, cell.y, mapItems.board[cell.y][cell.x]), matchId);
+        // Early pickups precede any new Bomb occupancy. Late pickups follow exposure and release.
+        for (std::size_t i = 0; i < beforeExplosion; ++i)
+            Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
+        for (const auto& event : brokenEvents) Broadcast(PacketType::SC_EVENT, event, matchId);
         BroadcastBombs(milliseconds);
+        for (std::size_t i = beforeExplosion; i < pickups.size(); ++i)
+            Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
         if (forestChanged) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
         if (iceChanged) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
         if (ended) {

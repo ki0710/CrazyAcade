@@ -26,7 +26,13 @@ std::vector<std::uint8_t> EncodeForestState(const ForestState& state);
 enum class ForestAppleEvent : std::uint8_t { Gained = 3, Lost = 4 };
 std::vector<std::uint8_t> EncodeForestAppleEvent(ForestAppleEvent kind, int playerId, int carried);
 
+struct ItemPickup {
+    int playerId = 0;
+    int item = 0;
+};
+
 // The session checks matchId and packet direction before applying the payload.
-bool ApplyMapItemPacket(const Packet& packet, MapItemState& state);
+// pickup is populated only when the event actually removes an item.
+bool ApplyMapItemPacket(const Packet& packet, MapItemState& state, ItemPickup* pickup = nullptr);
 
 } // namespace network
