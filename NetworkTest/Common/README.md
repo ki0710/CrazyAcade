@@ -46,6 +46,43 @@ two-PC timing. Existing IntegrationTests and BombIntegrationTests provide live
 TCP coverage. No protocol, gameplay rule, queue limit or production code changes
 are made for these tests.
 
+## Live TCP Broadcast tests (November 23)
+
+After `build.cmd`, run in a fresh PowerShell process with port 9000 free:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+Add-Type -Path NetworkTest/Common/IntegrationTests.cs,NetworkTest/Common/BroadcastIntegrationTests.cs
+[NetworkIntegrationTests]::RunBroadcast((Join-Path (Get-Location) 'NetworkTest/Common/build'), 3)
+```
+
+The partial test class reuses IntegrationTests' existing process lifecycle,
+connection, framing, ready/loading and initial Player/Bomb comparison helpers.
+`IntegrationTests.cs` can still be compiled and run alone as before. Each repeat
+starts its own production Server.exe and two loopback TCP clients, alternating
+the slow/disconnected slot (use at least two repeats to cover both slots).
+Each socket has read/write timeouts; movement, delayed drain and departure
+receive phases each have one seven-second deadline. Process waits and cleanup
+reuse the existing bounded harness. Repetitions are limited to 1..20.
+
+One client does not read during P1's traversal of the existing unobstructed City
+lane. The other must receive multiple increasing-tick Player updates and reach
+the edge before the slow reader resumes. The delayed reader then reads at most
+three bytes at a time, with a delay once per complete packet, and compares every
+recorded header identity and payload in FIFO order. A second movement starts,
+then the slow connection is closed abortively with zero linger. The survivor
+must receive cancellation, departure and lobby updates, keep the same socket,
+and communicate with a replacement connection through a new match and movement.
+
+This validates delayed application reads and an actual TCP reset during an
+active Broadcast stream, not a client-process kill or an exact overlap with a
+server send syscall. The 4096-byte requested receive buffer and small reads do
+not prove OS buffer saturation, TCP segmentation, server partial sends or
+WSAEWOULDBLOCK. Those send outcomes remain deterministically covered by
+BroadcastTests; this live suite does not instrument or assert their occurrence.
+Bomb/Ice result checks remain in the existing BombIntegrationTests suite rather
+than being duplicated here. Production protocol and gameplay are unchanged.
+
 ## Receive queue synchronization tests (November 22)
 
 `build.cmd` also builds and runs `ReceiveQueueTests.exe`. This standalone target
