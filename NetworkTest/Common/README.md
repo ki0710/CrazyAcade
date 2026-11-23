@@ -21,6 +21,31 @@ The server and client each compile their own entry point together with
 application: that test includes the socket implementation with scripted I/O.
 The build does not change the CrazyArcade Visual Studio solution.
 
+## Broadcast stability tests (November 23)
+
+`build.cmd` also builds and runs `BroadcastTests.exe`. Like the receive-queue
+tests, it includes the actual server with its entry point renamed. Only `send`
+and its error lookup in the actual `SocketUtils.cpp` are substituted. Do not
+link that source a second time or add this test to an application target.
+
+The deterministic checks cover both recipients' exact FIFO wire bytes across
+multiple queued packets, independent short sends and repeated WSAEWOULDBLOCK
+resumption (including a packet boundary), and no resend after the queue drains.
+They fill the real 64-packet Session queue in each slot order, verify only the
+overflowed recipient is marked dead, and verify slot removal, departure
+notifications and continued broadcasts to the survivor. Reset and zero-return
+send failures are forced after a partial frame. Queued receive EOF between
+broadcast and flush checks match cancellation/notification ordering; closing
+connections are excluded. A full 256-event receive queue with a blocked producer
+must leave Broadcast and Flush operational and preserve all input events.
+A 30-second watchdog bounds deadlock regressions.
+
+The test sockets are owned real Winsock handles without receive threads;
+network outcomes are scripted, not evidence of OS TCP buffer saturation or
+two-PC timing. Existing IntegrationTests and BombIntegrationTests provide live
+TCP coverage. No protocol, gameplay rule, queue limit or production code changes
+are made for these tests.
+
 ## Receive queue synchronization tests (November 22)
 
 `build.cmd` also builds and runs `ReceiveQueueTests.exe`. This standalone target
