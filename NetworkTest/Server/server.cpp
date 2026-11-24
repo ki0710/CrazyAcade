@@ -136,6 +136,7 @@ public:
     std::uint32_t moveTick = 0;
     Clock::time_point nextMoveTick;
     Clock::time_point gameEpoch;
+    std::uint64_t lastCitySecond = 0;
     std::vector<ServerBomb> bombs;
     std::deque<int> pendingBombs;
     std::uint32_t nextBombId = 1, bombSequence = 0;
@@ -265,6 +266,14 @@ public:
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
+    bool TickCity(std::uint64_t milliseconds) {
+        if (!IsPlaying() || mapItems.stage != 2) return false;
+        const auto seconds = milliseconds / 1000;
+        const bool clockChanged = AdvanceCityClock(mapItems.city, seconds - lastCitySecond);
+        lastCitySecond = seconds;
+        const bool trainChanged = UpdateCityTrain(mapItems.city, milliseconds);
+        return clockChanged || trainChanged;
+    }
     void TickMovement(Clock::time_point now) {
         if (!NeedsGameTick()) return;
         constexpr auto interval = std::chrono::milliseconds(kMoveTickMs);
@@ -305,7 +314,9 @@ public:
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
         const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
-        const bool ended = phase == Phase::Playing && (forestWon || iceEnded);
+        const bool cityChanged = TickCity(milliseconds);
+        const bool cityEnded = mapItems.stage == 2 && FinishCityTick(mapItems.city);
+        const bool ended = phase == Phase::Playing && (forestWon || iceEnded || cityEnded);
         if (ended) {
             phase = Phase::Finished;
             pendingBombs.clear();
@@ -322,8 +333,10 @@ public:
             Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
         if (forestChanged) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
         if (iceChanged) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
+        if (cityChanged) Broadcast(PacketType::SC_STATE, EncodeCityState(mapItems.city), matchId);
         if (ended) {
-            const auto result = forestWon ? EncodeForestState(mapItems.forest) : EncodeIceState(mapItems.ice);
+            const auto result = forestWon ? EncodeForestState(mapItems.forest) :
+                cityEnded ? EncodeCityState(mapItems.city) : EncodeIceState(mapItems.ice);
             Broadcast(PacketType::SC_MATCH_END, result, matchId);
         }
     }
@@ -373,6 +386,7 @@ public:
             phase = Phase::Playing; // Exactly one transition/broadcast, including duplicate LOADED.
             moveTick = 1;
             gameEpoch = Clock::now();
+            lastCitySecond = 0;
             nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);
             Broadcast(PacketType::SC_MATCH_START, {}, matchId);
             BroadcastPlayers();

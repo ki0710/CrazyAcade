@@ -211,7 +211,7 @@ connect; subsequent communication uses nonblocking sockets.
 ## CrazyArcade online movement and Bomb/Ice combat
 
 Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
-(protocol **12**). Run Server.exe on the host, then run
+(protocol **14**). Run Server.exe on the host, then run
 `CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
 127.0.0.1:9000; launching without arguments keeps the local game.
 
@@ -281,7 +281,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (12) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (14) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -289,8 +289,8 @@ size limit. Unknown packet types and invalid lengths are rejected.
 | SC_SNAPSHOT | 6 | map and basic item state |
 | SC_EVENT | 7 | obstacle broken or basic item collected |
 | CS_INPUT | 8 | directionMask uint8, sequence uint32, placeBomb uint8 |
-| SC_STATE | 9 | ice hearts/result or Forest carried apples, basket totals and winner |
-| SC_MATCH_END | 10 | final ice or Forest state |
+| SC_STATE | 9 | Ice hearts/result, Forest apples/baskets/result, or City time/result/train |
+| SC_MATCH_END | 10 | final Ice, Forest, or City state |
 | CS_READY | 11 | ready uint8 (0 cancel, 1 ready), matchId=0 |
 | CS_LOADED | 12 | empty, matchId=current snapshot ID |
 | SC_MATCH_START | 13 | empty, matchId=current snapshot ID |
@@ -316,7 +316,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 12. Once both
+Build the server and both clients together for protocol version 14. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -402,7 +402,7 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 12. Versions 1 through 11
+Build both applications together for protocol version 14. Versions 1 through 13
 are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
@@ -543,7 +543,7 @@ The Forest snapshot appends the 11-byte Forest state, for 1622 payload bytes.
 SC_STATE and SC_MATCH_END use the same Forest layout. Player order is P1, P2:
 two big-endian uint32 carried counts, two uint8 basket totals, and one uint8
 winner (0 playing, 1 P1, 2 P2). Forest SC_EVENT gain/loss keeps the existing
-format. Ice and City layouts are unchanged. Build all peers with protocol 12.
+format. Ice and Forest layouts are unchanged in protocol 14.
 
 ## Bomb state, time and final results (protocol 11)
 
@@ -745,3 +745,21 @@ Add-Type -Path NetworkTest/Common/IntegrationTests.cs,NetworkTest/Common/Broadca
   need the actual accumulated pickup counts to restore the HUD. Those counts
   cannot be inferred from capped abilities. The November 25 Forest joint test
   can use the existing protocol 12 binaries rebuilt from this revision.
+
+## City survival clock and train (protocol 14)
+
+Both players start with 30 seconds. The server starts the clock on match start
+and subtracts whole seconds from its steady-clock elapsed time, even with no
+input. When both reach zero in the same update, it broadcasts a draw and
+stops the match. The client displays the server's numbers.
+
+City SC_SNAPSHOT appends the 7-byte City state (total 1618 payload bytes).
+City SC_STATE and SC_MATCH_END use the same layout: two big-endian uint16
+remaining times in seconds, result (0 playing, 1/2 winner, 3 draw), and a
+big-endian uint16 train step (0 hidden, 1 through 364 active).
+
+The server derives train position from the same match time: it waits 2400 ms
+before each appearance, then traverses the original route from x=-690 to x=1125
+in five-pixel steps every nominal 12 ms. The clients draw the received step
+and stop updating at match end. Train collisions and item drops are separate
+City rules.

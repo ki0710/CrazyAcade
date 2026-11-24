@@ -14,6 +14,39 @@ static MovingPlayer At(int col, int row) {
 }
 
 int main() {
+    CityState city;
+    Check(city.remaining[0] == 30 && city.remaining[1] == 30);
+    Check(!AdvanceCityClock(city, 0));
+    Check(AdvanceCityClock(city, 7) && city.remaining[0] == 23 && city.remaining[1] == 23);
+    Check(!FinishCityTick(city));
+    Check(AdvanceCityClock(city, 40) && FinishCityTick(city) && city.result == CityResult::Draw);
+    Check(!AdvanceCityClock(city, 1) && !FinishCityTick(city));
+    CityState train;
+    Check(!UpdateCityTrain(train, 2399) && train.trainStep == 0);
+    Check(UpdateCityTrain(train, 2400) && train.trainStep == 1);
+    Check(!UpdateCityTrain(train, 2411) && train.trainStep == 1);
+    Check(UpdateCityTrain(train, 2412) && train.trainStep == 2);
+    Check(UpdateCityTrain(train, 6767) && train.trainStep == kCityTrainTravelSteps);
+    Check(UpdateCityTrain(train, 6768) && train.trainStep == 0);
+    Check(UpdateCityTrain(train, 9168) && train.trainStep == 1);
+    train.result = CityResult::Draw;
+    Check(!UpdateCityTrain(train, 13536) && train.trainStep == 1);
+    MapItemState cityView;
+    cityView.stage = 2;
+    Packet cityEnd;
+    cityEnd.header.packetType = PacketType::SC_MATCH_END;
+    city.trainStep = kCityTrainTravelSteps;
+    cityEnd.payload = EncodeCityState(city);
+    Check(cityEnd.payload == (std::vector<std::uint8_t>{0, 0, 0, 0, 3, 1, 108}));
+    Check(ApplyMapItemPacket(cityEnd, cityView));
+    Check(cityView.city.result == CityResult::Draw && cityView.city.trainStep == kCityTrainTravelSteps);
+    cityEnd.payload[6] = 109;
+    Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.trainStep == kCityTrainTravelSteps);
+    cityEnd.payload[6] = 107;
+    Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.trainStep == kCityTrainTravelSteps);
+    cityEnd.payload[6] = 108;
+    cityEnd.payload[4] = 1;
+    Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.result == CityResult::Draw);
     int apples = 2;
     Check(CollectForestApple(apples) && apples == 3);
     Check(!CollectForestApple(apples) && apples == 3);
@@ -220,6 +253,6 @@ int main() {
     Check(TryPlaceBomb(bombs, next, 1, moving, ability, board, 0));
     Check(bombs[0].col == 7 && board[11][7].obstacle == 9 && board[11][8].obstacle == 0);
     Check(InputPayload(kInputRight, 3, true) == (std::vector<std::uint8_t>{8, 0, 0, 0, 3, 1}));
-    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 12}));
+    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 14}));
     std::cout << "Bomb/Ice/codecs: " << checks << " checks passed.\n";
 }

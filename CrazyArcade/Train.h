@@ -20,6 +20,7 @@ typedef struct Train {
 } Train;
 
 void init_train(Train& train);
+void ApplyOnlineTrain(Train& train, int step);
 int move_train(Train& train);
 void draw_train(HDC hdc, Train& train);
 void make_item(Train& train, Board board[MAP_TILES][MAP_TILES]);

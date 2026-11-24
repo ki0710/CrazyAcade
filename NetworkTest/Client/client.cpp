@@ -111,6 +111,13 @@ bool Handle(const Packet& packet, int& playerId, bool& rejected, MapItemState& m
                 forest.carried[0], forest.carried[1], forest.deposited[0], forest.deposited[1], forest.winner);
             return true;
         }
+        if (mapItems.stage == 2) {
+            const auto& city = mapItems.city;
+            std::printf("%s: city seconds=%d,%d result=%d train=%d\n",
+                packet.header.packetType == PacketType::SC_STATE ? "SC_STATE" : "SC_MATCH_END",
+                city.remaining[0], city.remaining[1], static_cast<int>(city.result), city.trainStep);
+            return true;
+        }
         std::printf("%s: hearts=%d,%d result=%d\n",
             packet.header.packetType == PacketType::SC_STATE ? "SC_STATE" : "SC_MATCH_END",
             mapItems.ice.hearts[0], mapItems.ice.hearts[1], static_cast<int>(mapItems.ice.result));

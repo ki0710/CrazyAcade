@@ -370,7 +370,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     p2.SetCurrentApple(onlineMap.forest.carried[1]);
                     p1Applebox = onlineMap.forest.deposited[0];
                     p2Applebox = onlineMap.forest.deposited[1];
-                    p1currentTime = p2currentTime = 30;
+                    p1currentTime = onlineMap.city.remaining[0];
+                    p2currentTime = onlineMap.city.remaining[1];
+                    if (onlineMap.stage == 2) {
+                        train = Train{};
+                        init_train(train);
+                        ApplyOnlineTrain(train, onlineMap.city.trainStep);
+                    }
                     SetWindowText(hWnd, L"CrazyArcade Online | Waiting for both players, C cancel");
                     send(PacketType::CS_LOADED, onlineMatchId, {});
                     break;
@@ -456,14 +462,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     ItemPickup pickup;
                     invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap, &pickup);
                     if (!invalid) {
-                        for (int y = 0; y < MAP_TILES; ++y)
-                            for (int x = 0; x < MAP_TILES; ++x)
-                                board[y][x] = onlineMap.board[y][x];
+                        if (packet.header.packetType == PacketType::SC_EVENT) {
+                            for (int y = 0; y < MAP_TILES; ++y)
+                                for (int x = 0; x < MAP_TILES; ++x)
+                                    board[y][x] = onlineMap.board[y][x];
+                        }
                         ice = onlineMap.ice;
                         p1.SetCurrentApple(onlineMap.forest.carried[0]);
                         p2.SetCurrentApple(onlineMap.forest.carried[1]);
                         p1Applebox = onlineMap.forest.deposited[0];
                         p2Applebox = onlineMap.forest.deposited[1];
+                        if (onlineMap.stage == 2) {
+                            p1currentTime = onlineMap.city.remaining[0];
+                            p2currentTime = onlineMap.city.remaining[1];
+                            ApplyOnlineTrain(train, onlineMap.city.trainStep);
+                        }
                         if (pickup.playerId) {
                             auto& player = pickup.playerId == 1 ? p1 : p2;
                             auto& itemCounts = pickup.playerId == 1 ? p1_current_item : p2_current_item;
@@ -473,7 +486,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (packet.header.packetType == PacketType::SC_MATCH_END) {
                             onlinePlaying = false;
                             game_end = true;
-                            game_winner = onlineMap.stage == 1 ? onlineMap.forest.winner : static_cast<int>(ice.result);
+                            game_winner = onlineMap.stage == 1 ? onlineMap.forest.winner :
+                                onlineMap.stage == 2 ? static_cast<int>(onlineMap.city.result) : static_cast<int>(ice.result);
                             SetWindowText(hWnd, game_winner == 3 ? L"CrazyArcade Online | Draw" :
                                 game_winner == 1 ? L"CrazyArcade Online | P1 wins" : L"CrazyArcade Online | P2 wins");
                         }

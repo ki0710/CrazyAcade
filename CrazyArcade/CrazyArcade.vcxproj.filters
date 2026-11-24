@@ -54,6 +54,9 @@
     <ClInclude Include="BoardRender.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="CityState.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="IceState.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
