@@ -11,8 +11,43 @@ constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
 constexpr std::size_t kSnapshotSize = 1 + MAP_TILES * MAP_TILES * kCellSize + 2 * kAbilitySize;
 constexpr std::size_t kIceStateSize = 3;
+constexpr std::size_t kCityStateSize = 5;
 // Two existing uint32 carried counts, two uint8 basket totals, and one uint8 winner.
 constexpr std::size_t kForestStateSize = 11;
+
+bool ValidCityState(const CityState& state) {
+    for (int remaining : state.remaining)
+        if (remaining < 0 || remaining > 65535) return false;
+
+    switch (state.result) {
+    case CityResult::Playing:    return state.remaining[0] > 0 && state.remaining[1] > 0;
+    case CityResult::Player1Win: return state.remaining[0] > 0 && state.remaining[1] == 0;
+    case CityResult::Player2Win: return state.remaining[0] == 0 && state.remaining[1] > 0;
+    case CityResult::Draw:       return state.remaining[0] == 0 && state.remaining[1] == 0;
+    default: return false;
+    }
+}
+
+bool ReadCityState(const std::uint8_t* p, CityState& state) {
+    CityState decoded;
+    decoded.remaining[0] = PayloadWord(p);
+    decoded.remaining[1] = PayloadWord(p + 2);
+    decoded.result = static_cast<CityResult>(p[4]);
+    if (!ValidCityState(decoded)) return false;
+    state = decoded;
+    return true;
+}
+
+bool ApplyCityUpdate(const Packet& packet, CityState& state) {
+    CityState decoded;
+    if (packet.payload.size() != kCityStateSize || !ReadCityState(packet.payload.data(), decoded)) return false;
+    if (packet.header.packetType == PacketType::SC_MATCH_END && decoded.result == CityResult::Playing) return false;
+    if (state.result != CityResult::Playing &&
+        (decoded.result != state.result || decoded.remaining[0] != state.remaining[0] ||
+         decoded.remaining[1] != state.remaining[1])) return false;
+    state = decoded;
+    return true;
+}
 
 bool ValidForestState(const ForestState& state) {
     for (int i = 0; i < 2; ++i) {
@@ -124,7 +159,7 @@ std::vector<std::uint8_t> CellEvent(std::uint8_t kind, int x, int y, int item) {
 bool ApplySnapshot(const std::vector<std::uint8_t>& payload, MapItemState& state) {
     if (payload.empty() || payload[0] < 1 || payload[0] > 3) return false;
     const auto expected = kSnapshotSize + (payload[0] == 3 ? kIceStateSize :
-        payload[0] == 1 ? kForestStateSize : 0);
+        payload[0] == 1 ? kForestStateSize : kCityStateSize);
     if (payload.size() != expected) return false;
     MapItemState snapshot;
     snapshot.stage = payload[0];
@@ -143,6 +178,7 @@ bool ApplySnapshot(const std::vector<std::uint8_t>& payload, MapItemState& state
     }
     if (snapshot.stage == 3 && !ReadIceState(p, snapshot.ice)) return false;
     if (snapshot.stage == 1 && !ReadForestState(p, snapshot.forest)) return false;
+    if (snapshot.stage == 2 && !ReadCityState(p, snapshot.city)) return false;
     state = snapshot;
     return true;
 }
@@ -207,7 +243,7 @@ std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state) {
     if (state.stage < 1 || state.stage > 3) return {};
     std::vector<std::uint8_t> payload;
     payload.reserve(kSnapshotSize + (state.stage == 3 ? kIceStateSize :
-        state.stage == 1 ? kForestStateSize : 0));
+        state.stage == 1 ? kForestStateSize : kCityStateSize));
     payload.push_back(static_cast<std::uint8_t>(state.stage));
     for (const auto& row : state.board) {
         for (const auto& cell : row) {
@@ -232,6 +268,19 @@ std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state) {
         if (forest.empty()) return {};
         payload.insert(payload.end(), forest.begin(), forest.end());
     }
+    if (state.stage == 2) {
+        const auto city = EncodeCityState(state.city);
+        if (city.empty()) return {};
+        payload.insert(payload.end(), city.begin(), city.end());
+    }
+    return payload;
+}
+
+std::vector<std::uint8_t> EncodeCityState(const CityState& state) {
+    if (!ValidCityState(state)) return {};
+    std::vector<std::uint8_t> payload;
+    for (int remaining : state.remaining) AppendWord(payload, remaining);
+    payload.push_back(static_cast<std::uint8_t>(state.result));
     return payload;
 }
 
@@ -286,6 +335,7 @@ bool ApplyMapItemPacket(const Packet& packet, MapItemState& state, ItemPickup* p
     if (packet.header.packetType == PacketType::SC_EVENT) return ApplyEvent(packet.payload, state, pickup);
     if (packet.header.packetType == PacketType::SC_STATE || packet.header.packetType == PacketType::SC_MATCH_END) {
         if (state.stage == 1) return ApplyForestUpdate(packet, state.forest);
+        if (state.stage == 2) return ApplyCityUpdate(packet, state.city);
         return ApplyIceUpdate(packet, state);
     }
     return false;

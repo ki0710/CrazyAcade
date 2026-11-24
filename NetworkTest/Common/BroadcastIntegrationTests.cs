@@ -68,8 +68,8 @@ public static partial class NetworkIntegrationTests
             using (TcpClient first = Connect())
             using (TcpClient second = Connect()) {
                 NetworkStream a = first.GetStream(), b = second.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 12); Check(Receive(a, 2)[0] == 1, "first slot"); Receive(a, 3);
-                Send(b, 1, 0, 0, 1, 0, 12); Check(Receive(b, 2)[0] == 2, "second slot");
+                Send(a, 1, 0, 0, 1, 0, 13); Check(Receive(a, 2)[0] == 1, "first slot"); Receive(a, 3);
+                Send(b, 1, 0, 0, 1, 0, 13); Check(Receive(b, 2)[0] == 2, "second slot");
                 Receive(b, 3); Receive(a, 3);
                 // Reuse the existing guaranteed City movement lane, independent of random obstacles.
                 Send(a, 15, 0, 1, 2); Receive(a, 3); Receive(b, 3);
@@ -83,14 +83,19 @@ public static partial class NetworkIntegrationTests
                 Send(a, 8, 1, Input(8, 1));
                 var timer = Stopwatch.StartNew();
                 uint previousTick = BroadcastWord(initial, 0);
-                do {
+                for (;;) {
                     var frame = BroadcastRead(healthy, timer);
+                    recorded.Add(frame);
+                    if (frame.Type == 9) {
+                        Check(frame.Match == 1 && frame.Payload.Length == CityStatePacketSize, "Expected City state");
+                        continue;
+                    }
                     Check(frame.Type == 16 && frame.Match == 1 && frame.Payload.Length == 18,
                           "Expected City movement Broadcast");
                     Check(BroadcastWord(frame.Payload, 0) > previousTick, "movement tick must increase");
                     previousTick = BroadcastWord(frame.Payload, 0);
-                    recorded.Add(frame);
-                } while (recorded[recorded.Count - 1].Payload[4] != 19);
+                    if (frame.Payload[4] == 19) break;
+                }
                 Check(recorded.Count >= 2, "Need multiple updates while slow recipient is unread");
                 Send(a, 8, 1, Input(0, 2));
                 long pausedMs = timer.ElapsedMilliseconds;
@@ -103,7 +108,8 @@ public static partial class NetworkIntegrationTests
                 // Re-enter the lane, observe an update, then abort the peer without graceful shutdown.
                 Send(a, 8, 1, Input(4, 3));
                 timer.Restart();
-                var moving = BroadcastRead(healthy, timer);
+                BroadcastFrame moving;
+                do { moving = BroadcastRead(healthy, timer); } while (moving.Type == 9);
                 Check(moving.Type == 16 && moving.Match == 1 && moving.Payload[8] + moving.Payload[9] > 0,
                       "Reset scenario must start during active movement Broadcast");
                 slowClient.Client.LingerState = new LingerOption(true, 0);
@@ -115,6 +121,9 @@ public static partial class NetworkIntegrationTests
                     if (frame.Type == 16) {
                         Check(!canceled && frame.Match == 1 && frame.Payload.Length == 18,
                               "Movement must precede match cancellation");
+                    } else if (frame.Type == 9) {
+                        Check(!canceled && frame.Match == 1 && frame.Payload.Length == CityStatePacketSize,
+                              "City state must precede match cancellation");
                     } else if (frame.Type == 14) {
                         Check(!canceled && frame.Match == 1 && frame.Payload.Length == 1 && frame.Payload[0] == 1,
                               "Expected exactly one departure cancellation");
@@ -132,7 +141,7 @@ public static partial class NetworkIntegrationTests
                 }
                 using (TcpClient replacement = Connect()) {
                     NetworkStream fresh = replacement.GetStream();
-                    Send(fresh, 1, 0, 0, 1, 0, 12);
+                    Send(fresh, 1, 0, 0, 1, 0, 13);
                     byte[] welcome = Receive(fresh, 2);
                     Check(welcome.Length == 1 && welcome[0] == slowId, "new connection must reuse free slot");
                     byte[] room = Receive(fresh, 3), peerRoom = Receive(healthy, 3);
@@ -149,13 +158,15 @@ public static partial class NetworkIntegrationTests
                     Send(p1, 8, 1, Input(8, uint.MaxValue, true));
                     Send(p2, 8, 1, Input(4, uint.MaxValue, true));
                     Thread.Sleep(150);
-                    Check(replacement.Available == 0 && (slowId == 1 ? second : first).Available == 0,
-                          "previous-match input produced state in the new match");
+                    CheckNoCityMovement(p1, p2, 2, "previous-match input produced state in the new match");
                     // The replacement itself sends gameplay input with a fresh sequence.
                     Send(fresh, 8, 2, Input(slowId == 1 ? (byte)8 : (byte)4, 1));
                     timer.Restart();
-                    var next = BroadcastRead(healthy, timer);
-                    BroadcastSame(next, BroadcastRead(fresh, timer));
+                    BroadcastFrame next;
+                    do {
+                        next = BroadcastRead(healthy, timer);
+                        BroadcastSame(next, BroadcastRead(fresh, timer));
+                    } while (next.Type == 9);
                     int progress = slowId == 1 ? 8 : 15;
                     Check(next.Type == 16 && next.Match == 2 && next.Payload.Length == 18 &&
                           next.Payload[progress] + next.Payload[progress + 1] > 0,

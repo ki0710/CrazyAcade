@@ -14,6 +14,22 @@ static MovingPlayer At(int col, int row) {
 }
 
 int main() {
+    CityState city;
+    Check(city.remaining[0] == 30 && city.remaining[1] == 30);
+    Check(!AdvanceCityClock(city, 0));
+    Check(AdvanceCityClock(city, 7) && city.remaining[0] == 23 && city.remaining[1] == 23);
+    Check(!FinishCityTick(city));
+    Check(AdvanceCityClock(city, 40) && FinishCityTick(city) && city.result == CityResult::Draw);
+    Check(!AdvanceCityClock(city, 1) && !FinishCityTick(city));
+    MapItemState cityView;
+    cityView.stage = 2;
+    Packet cityEnd;
+    cityEnd.header.packetType = PacketType::SC_MATCH_END;
+    cityEnd.payload = EncodeCityState(city);
+    Check(cityEnd.payload.size() == 5 && ApplyMapItemPacket(cityEnd, cityView));
+    Check(cityView.city.result == CityResult::Draw);
+    cityEnd.payload.back() = 1;
+    Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.result == CityResult::Draw);
     int apples = 2;
     Check(CollectForestApple(apples) && apples == 3);
     Check(!CollectForestApple(apples) && apples == 3);
@@ -220,6 +236,6 @@ int main() {
     Check(TryPlaceBomb(bombs, next, 1, moving, ability, board, 0));
     Check(bombs[0].col == 7 && board[11][7].obstacle == 9 && board[11][8].obstacle == 0);
     Check(InputPayload(kInputRight, 3, true) == (std::vector<std::uint8_t>{8, 0, 0, 0, 3, 1}));
-    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 12}));
+    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 13}));
     std::cout << "Bomb/Ice/codecs: " << checks << " checks passed.\n";
 }

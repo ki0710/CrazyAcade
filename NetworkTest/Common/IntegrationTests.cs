@@ -91,15 +91,23 @@ public static partial class NetworkIntegrationTests
         }
         return result;
     }
-    static byte[] Receive(NetworkStream stream, int type, uint match = 0)
+    const int CityStatePacketSize = 5;
+    static byte[] ReceiveFrame(NetworkStream stream, uint match, out int type)
     {
         byte[] header = ReadExactly(stream, 10);
         int size = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
         Check(size >= 10 && size <= 1048576, "Invalid length");
-        Check(((header[4] << 8) | header[5]) == type, "Unexpected packet type");
+        type = (header[4] << 8) | header[5];
         uint id = ((uint)header[6] << 24) | ((uint)header[7] << 16) | ((uint)header[8] << 8) | header[9];
         Check(id == match, "Unexpected matchId " + id);
         return ReadExactly(stream, size - 10);
+    }
+    static byte[] Receive(NetworkStream stream, int type, uint match = 0)
+    {
+        int actualType;
+        byte[] payload = ReceiveFrame(stream, match, out actualType);
+        Check(actualType == type, "Unexpected packet type " + actualType);
+        return payload;
     }
     static TcpClient Connect()
     {
@@ -144,7 +152,7 @@ public static partial class NetworkIntegrationTests
         using (TcpClient raw = Connect()) {
             NetworkStream stream = raw.GetStream();
             if (approved) {
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 12});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 13});
                 stream.Write(hello, 0, hello.Length);
                 Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
                 CheckRoomState(Receive(stream, 3), 1, 0, 0);
@@ -229,7 +237,7 @@ public static partial class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 3}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 4}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 12}), 2);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 13}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -261,6 +269,7 @@ public static partial class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 9}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 10}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 11}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 12}), 3);
             RequestErrorCase(server, new byte[0], 0, true, 15);
             RequestErrorCase(server, new byte[] {1}, 0, true, 15);
             RequestErrorCase(server, new byte[] {2, 0, 1}, 0, true, 15);
@@ -271,7 +280,7 @@ public static partial class NetworkIntegrationTests
             RequestErrorCase(server, new byte[] {2, 255}, 0, true, 15);
             RequestErrorCase(server, new byte[] {1, 1}, 1, true, 15);
             RequestErrorCase(server, new byte[] {2, 0}, 0, false, 15);
-            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8/9/10/11 rejected");
+            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8/9/10/11/12 rejected");
             RequestErrorCase(server, new byte[0], 0, true, 12);
             RequestErrorCase(server, new byte[] {1}, 1, true, 12);
             RequestErrorCase(server, new byte[0], uint.MaxValue, true, 12);
@@ -281,7 +290,7 @@ public static partial class NetworkIntegrationTests
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 12});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 13});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -297,7 +306,7 @@ public static partial class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 12});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 13});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
@@ -490,11 +499,28 @@ public static partial class NetworkIntegrationTests
         byte[] bytes = Frame(type, match, payload);
         stream.Write(bytes, 0, bytes.Length);
     }
+    static byte[] ReadSameGameFrame(NetworkStream a, NetworkStream b, uint match, out int type)
+    {
+        byte[] frame = ReceiveFrame(a, match, out type);
+        Check(Convert.ToBase64String(frame) == Convert.ToBase64String(Receive(b, type, match)),
+              "Two clients received different game states");
+        if (type == 9) Check(frame.Length == CityStatePacketSize, "Expected City state");
+        return frame;
+    }
+    static void CheckNoCityMovement(NetworkStream a, NetworkStream b, uint match, string message)
+    {
+        while (a.DataAvailable || b.DataAvailable) {
+            int type;
+            ReadSameGameFrame(a, b, match, out type);
+            Check(type == 9, message);
+        }
+    }
     static byte[] ReadSamePlayers(NetworkStream a, NetworkStream b, uint match)
     {
-        byte[] frame = Receive(a, 16, match);
-        Check(frame.Length == 18 && Convert.ToBase64String(frame) ==
-              Convert.ToBase64String(Receive(b, 16, match)), "Two clients received different player states");
+        byte[] frame;
+        int type;
+        do { frame = ReadSameGameFrame(a, b, match, out type); } while (type == 9);
+        Check(frame.Length == 18 && type == 16, "Expected player state");
         if (frame[0] == 0 && frame[1] == 0 && frame[2] == 0 && frame[3] == 1) {
             byte[] bombs = Receive(a, 17, match);
             Check(bombs.Length == 10 && Convert.ToBase64String(bombs) ==
@@ -508,10 +534,10 @@ public static partial class NetworkIntegrationTests
             server.Wait("Server listening");
             using (TcpClient first = Connect()) {
                 NetworkStream a = first.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 12); Receive(a, 2); Receive(a, 3);
+                Send(a, 1, 0, 0, 1, 0, 13); Receive(a, 2); Receive(a, 3);
                 using (TcpClient second = Connect()) {
                     NetworkStream b = second.GetStream();
-                    Send(b, 1, 0, 0, 1, 0, 12); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 1, 0, 0, 1, 0, 13); Receive(b, 2); Receive(b, 3); Receive(a, 3);
                     Send(a, 15, 0, 1, 2); Receive(a, 3); Receive(b, 3);
                     Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                     Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
@@ -538,7 +564,7 @@ public static partial class NetworkIntegrationTests
                               "P1 input changed P2");
                     } while (frame[4] < 19);
                     Thread.Sleep(120);
-                    Check(first.Available == 0 && second.Available == 0, "Player advanced past map edge");
+                    CheckNoCityMovement(a, b, 1, "Player advanced past map edge");
 
                     Send(a, 8, 1, Input(0, 3));
                     Send(b, 8, 1, Input(4, 1));
@@ -550,9 +576,13 @@ public static partial class NetworkIntegrationTests
                     Check(frame[11] < 11 && frame[12] == 14, "P2 did not finish its active tile");
                     // Consume frames already queued in transit, then verify the stop settled.
                     Thread.Sleep(160);
-                    while (first.Available != 0) frame = ReadSamePlayers(a, b, 1);
+                    while (a.DataAvailable || b.DataAvailable) {
+                        int type;
+                        ReadSameGameFrame(a, b, 1, out type);
+                        Check(type == 16 || type == 9, "Unexpected game update");
+                    }
                     Thread.Sleep(160);
-                    Check(first.Available == 0 && second.Available == 0, "P2 kept moving after NONE");
+                    CheckNoCityMovement(a, b, 1, "P2 kept moving after NONE");
                 }
             }
             server.Stop();
@@ -565,10 +595,10 @@ public static partial class NetworkIntegrationTests
             server.Wait("Server listening");
             using (TcpClient first = Connect()) {
                 NetworkStream a = first.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 12); Receive(a, 2); Receive(a, 3);
+                Send(a, 1, 0, 0, 1, 0, 13); Receive(a, 2); Receive(a, 3);
                 using (TcpClient second = Connect()) {
                     NetworkStream b = second.GetStream();
-                    Send(b, 1, 0, 0, 1, 0, 12); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 1, 0, 0, 1, 0, 13); Receive(b, 2); Receive(b, 3); Receive(a, 3);
                     Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                     // Both-ready then SELECT in one accumulated read: no loading tick in between.
                     byte[] ready = Frame(11, 0, new byte[] {1});

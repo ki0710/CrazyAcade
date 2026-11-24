@@ -19,8 +19,8 @@ public static partial class NetworkIntegrationTests
         public ForestPickupPair(NetworkStream a, NetworkStream b)
         {
             peers = new[] { a, b };
-            Send(a, 1, 0, 0, 1, 0, 12); Receive(a, 2); Receive(a, 3);
-            Send(b, 1, 0, 0, 1, 0, 12); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+            Send(a, 1, 0, 0, 1, 0, 13); Receive(a, 2); Receive(a, 3);
+            Send(b, 1, 0, 0, 1, 0, 13); Receive(b, 2); Receive(b, 3); Receive(a, 3);
             Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
             Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
             var map = Receive(a, 6, 1);
