@@ -266,12 +266,13 @@ public:
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
-    bool TickCityClock(std::uint64_t milliseconds) {
+    bool TickCity(std::uint64_t milliseconds) {
         if (!IsPlaying() || mapItems.stage != 2) return false;
         const auto seconds = milliseconds / 1000;
-        const bool changed = AdvanceCityClock(mapItems.city, seconds - lastCitySecond);
+        const bool clockChanged = AdvanceCityClock(mapItems.city, seconds - lastCitySecond);
         lastCitySecond = seconds;
-        return changed;
+        const bool trainChanged = UpdateCityTrain(mapItems.city, milliseconds);
+        return clockChanged || trainChanged;
     }
     void TickMovement(Clock::time_point now) {
         if (!NeedsGameTick()) return;
@@ -313,7 +314,7 @@ public:
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
         const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
-        const bool cityChanged = TickCityClock(milliseconds);
+        const bool cityChanged = TickCity(milliseconds);
         const bool cityEnded = mapItems.stage == 2 && FinishCityTick(mapItems.city);
         const bool ended = phase == Phase::Playing && (forestWon || iceEnded || cityEnded);
         if (ended) {

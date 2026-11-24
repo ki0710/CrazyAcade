@@ -11,11 +11,12 @@ constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
 constexpr std::size_t kSnapshotSize = 1 + MAP_TILES * MAP_TILES * kCellSize + 2 * kAbilitySize;
 constexpr std::size_t kIceStateSize = 3;
-constexpr std::size_t kCityStateSize = 5;
+constexpr std::size_t kCityStateSize = 7;
 // Two existing uint32 carried counts, two uint8 basket totals, and one uint8 winner.
 constexpr std::size_t kForestStateSize = 11;
 
 bool ValidCityState(const CityState& state) {
+    if (state.trainStep < 0 || state.trainStep > kCityTrainTravelSteps) return false;
     for (int remaining : state.remaining)
         if (remaining < 0 || remaining > 65535) return false;
 
@@ -33,6 +34,7 @@ bool ReadCityState(const std::uint8_t* p, CityState& state) {
     decoded.remaining[0] = PayloadWord(p);
     decoded.remaining[1] = PayloadWord(p + 2);
     decoded.result = static_cast<CityResult>(p[4]);
+    decoded.trainStep = PayloadWord(p + 5);
     if (!ValidCityState(decoded)) return false;
     state = decoded;
     return true;
@@ -44,7 +46,7 @@ bool ApplyCityUpdate(const Packet& packet, CityState& state) {
     if (packet.header.packetType == PacketType::SC_MATCH_END && decoded.result == CityResult::Playing) return false;
     if (state.result != CityResult::Playing &&
         (decoded.result != state.result || decoded.remaining[0] != state.remaining[0] ||
-         decoded.remaining[1] != state.remaining[1])) return false;
+         decoded.remaining[1] != state.remaining[1] || decoded.trainStep != state.trainStep)) return false;
     state = decoded;
     return true;
 }
@@ -281,6 +283,7 @@ std::vector<std::uint8_t> EncodeCityState(const CityState& state) {
     std::vector<std::uint8_t> payload;
     for (int remaining : state.remaining) AppendWord(payload, remaining);
     payload.push_back(static_cast<std::uint8_t>(state.result));
+    AppendWord(payload, state.trainStep);
     return payload;
 }
 

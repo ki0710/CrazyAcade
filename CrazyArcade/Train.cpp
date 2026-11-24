@@ -1,28 +1,38 @@
 #include"Train.h"
 #include "BoardRender.h"
 #include"ResourceManager.h"
+#include "CityState.h"
 
 void init_train(Train& train) {
-	train.Pos.left = -690;
+	train.Pos.left = kCityTrainStartX;
 	train.Pos.top = 320;
 	train.Pos.right = train.Pos.left + 1029; // 기차 폭
 	train.Pos.bottom = train.Pos.top + 101; // 기차 높이
 
 	train.collisionP1 = false;
 	train.collisionP2 = false;
-	train.speed = 5; // 기차 속도
+	train.speed = kCityTrainStepPixels; // 기차 속도
 	train.spawnTime = 0; // 기차 생성 시간
 	train.spawnInterval = 1000; // 기차 생성 간격 (10초)
 	train.is_spawned = false; // 기차가 생성되었는지 여부
 }
+void ApplyOnlineTrain(Train& train, int step) {
+    train.is_spawned = step != 0;
+    if (train.is_spawned) {
+        const int width = train.Pos.right - train.Pos.left;
+        train.Pos.left = kCityTrainStartX + (step - 1) * kCityTrainStepPixels;
+        train.Pos.right = train.Pos.left + width;
+    }
+}
+
 int move_train(Train& train) {
 	if (train.is_spawned) {
 		train.Pos.left += train.speed;
 		train.Pos.right += train.speed;
 		
-		if (train.Pos.left > 1125) {
+		if (train.Pos.left > kCityTrainEndX) {
 
-			train.Pos.left = -690;
+			train.Pos.left = kCityTrainStartX;
 			train.Pos.right = train.Pos.left + 1029; // 기차 폭
 			train.is_spawned = false; // 기차가 다시 생성되지 않도록 설정
 			train.collisionP1 = false; // 충돌 상태 초기화

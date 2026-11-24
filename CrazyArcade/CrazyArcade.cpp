@@ -372,6 +372,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     p2Applebox = onlineMap.forest.deposited[1];
                     p1currentTime = onlineMap.city.remaining[0];
                     p2currentTime = onlineMap.city.remaining[1];
+                    if (onlineMap.stage == 2) {
+                        train = Train{};
+                        init_train(train);
+                        ApplyOnlineTrain(train, onlineMap.city.trainStep);
+                    }
                     SetWindowText(hWnd, L"CrazyArcade Online | Waiting for both players, C cancel");
                     send(PacketType::CS_LOADED, onlineMatchId, {});
                     break;
@@ -457,9 +462,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     ItemPickup pickup;
                     invalid = !onlineMatchId || id != onlineMatchId || !ApplyMapItemPacket(packet, onlineMap, &pickup);
                     if (!invalid) {
-                        for (int y = 0; y < MAP_TILES; ++y)
-                            for (int x = 0; x < MAP_TILES; ++x)
-                                board[y][x] = onlineMap.board[y][x];
+                        if (packet.header.packetType == PacketType::SC_EVENT) {
+                            for (int y = 0; y < MAP_TILES; ++y)
+                                for (int x = 0; x < MAP_TILES; ++x)
+                                    board[y][x] = onlineMap.board[y][x];
+                        }
                         ice = onlineMap.ice;
                         p1.SetCurrentApple(onlineMap.forest.carried[0]);
                         p2.SetCurrentApple(onlineMap.forest.carried[1]);
@@ -468,6 +475,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (onlineMap.stage == 2) {
                             p1currentTime = onlineMap.city.remaining[0];
                             p2currentTime = onlineMap.city.remaining[1];
+                            ApplyOnlineTrain(train, onlineMap.city.trainStep);
                         }
                         if (pickup.playerId) {
                             auto& player = pickup.playerId == 1 ? p1 : p2;
