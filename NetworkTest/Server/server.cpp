@@ -328,6 +328,8 @@ public:
         for (std::size_t i = 0; i < beforeExplosion; ++i)
             Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
         for (const auto& event : brokenEvents) Broadcast(PacketType::SC_EVENT, event, matchId);
+        for (const auto& item : changes.destroyedItems)
+            Broadcast(PacketType::SC_EVENT, EncodeItemDestroyed(item.cell.x, item.cell.y, item.item), matchId);
         BroadcastBombs(milliseconds);
         for (std::size_t i = beforeExplosion; i < pickups.size(); ++i)
             Broadcast(PacketType::SC_EVENT, pickups[i], matchId);

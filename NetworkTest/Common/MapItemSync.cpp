@@ -6,6 +6,7 @@ namespace network {
 namespace {
 constexpr std::uint8_t kObstacleBroken = 1;
 constexpr std::uint8_t kItemCollected = 2;
+constexpr std::uint8_t kItemDestroyed = 5;
 constexpr std::size_t kCellSize = 4;
 constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
@@ -215,7 +216,7 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, I
     if (payload.size() < kEventSize) return false;
     const int id = PayloadWord(payload.data() + 1);
     const int item = payload[3];
-    if (id < 1 || id > MAP_TILES * MAP_TILES || item > 3) return false;
+    if (id < 1 || id > MAP_TILES * MAP_TILES || item > (state.stage == 2 ? 4 : 3)) return false;
     Board& cell = state.board[(id - 1) / MAP_TILES][(id - 1) % MAP_TILES];
 
     if (payload[0] == kObstacleBroken) {
@@ -226,7 +227,13 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, I
         }
         return true;
     }
-    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize || item == 0)
+    if (payload[0] == kItemDestroyed) {
+        if (payload.size() != kEventSize || !item || (cell.obstacle != 0 && cell.obstacle != 9) ||
+            (cell.item != 0 && cell.item != item)) return false;
+        cell.item = 0;
+        return true;
+    }
+    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize || item < 1 || item > 3)
         return false;
 
     const int playerId = payload[4];
@@ -320,6 +327,11 @@ std::vector<std::uint8_t> EncodeIceState(const IceState& state) {
 std::vector<std::uint8_t> EncodeObstacleBroken(int x, int y, const Board& cell) {
     if (cell.obstacle != 0 || cell.item < 0 || cell.item > 3) return {};
     return CellEvent(kObstacleBroken, x, y, cell.item);
+}
+
+std::vector<std::uint8_t> EncodeItemDestroyed(int x, int y, int item) {
+    if (item < 1 || item > 4) return {};
+    return CellEvent(kItemDestroyed, x, y, item);
 }
 
 std::vector<std::uint8_t> EncodeItemCollected(

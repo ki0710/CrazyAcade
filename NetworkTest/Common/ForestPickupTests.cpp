@@ -135,12 +135,46 @@ void ExposureAndOccupancy() {
     occupied.Apply(occupied.Tick(20));
     Check(world.board[6][12].item == 3, "planted Bomb blocks pickup");
     const auto released = occupied.Tick(1060);
-    Check(released.size() == 2 && released[0].header.packetType == PacketType::SC_BOMB_STATE &&
-          released[1].payload[0] == 2, "release Bomb occupancy before collecting");
+    Check(released.size() == 2 && released[0].payload[0] == 5 &&
+          released[1].header.packetType == PacketType::SC_BOMB_STATE, "Bomb destroys item on its own tile");
     occupied.Apply(released);
     for (int i = 0; i < 2; ++i)
-        Check(occupied.views[i].board[6][12].item == 0 && occupied.counts[i][1][2] == 1,
-              "P2 pickup visible to both receivers");
+        Check(occupied.views[i].board[6][12].item == 0 && occupied.counts[i][1][2] == 0,
+              "both receivers remove the item without awarding it");
+}
+
+void ExposedItemDestruction() {
+    TestRoom test;
+    auto& room = test.room;
+    auto& world = room.mapItems;
+    world.board[6][5] = {1, 1, 1, 2};
+    test.CopyInitialState();
+    test.MoveTo(0, 4, 6);
+    test.MoveTo(1, 6, 6);
+    for (int i = 0; i < 2; ++i)
+        Check(TryPlaceBomb(room.bombs, room.nextBombId, i + 1, room.players[i],
+                          world.abilities[i], world.board, 0), "Bomb beside hidden item");
+    test.Apply(test.Tick(20));
+    const auto exposed = test.Tick(1060);
+    test.Apply(exposed);
+    Check(exposed.size() == 2 && exposed[0].payload == (std::vector<std::uint8_t>{1, 0, 126, 2}),
+          "same-tick blasts break the wall and preserve the newly exposed item");
+    test.Apply(test.Tick(1080));
+    for (const auto& view : test.views)
+        Check(view.board[6][5].obstacle == 0 && view.board[6][5].item == 2,
+              "both clients retain the exposed item during the original blasts");
+
+    Check(TryPlaceBomb(room.bombs, room.nextBombId, 1, room.players[0],
+                       world.abilities[0], world.board, 1080), "place a later Bomb");
+    test.Apply(test.Tick(1100));
+    const auto destroyed = test.Tick(2140);
+    test.Apply(destroyed);
+    Check(destroyed.size() == 2 && destroyed[0].payload == (std::vector<std::uint8_t>{5, 0, 126, 2}),
+          "later blast sends exactly one destruction event");
+    Check(world.board[6][5].item == 0, "server removes exposed item");
+    for (const auto& view : test.views)
+        Check(view.board[6][5].item == 0 && view.abilities[0].bombLimit == 2,
+              "both clients remove the exposed item without applying a bonus");
 }
 
 void ContestAndPlacement() {
@@ -245,6 +279,7 @@ int main() {
     WSADATA data{};
     Check(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock startup");
     ExposureAndOccupancy();
+    ExposedItemDestruction();
     ContestAndPlacement();
     CatchUpAndAbilities();
     ForestCombatAndFinish();

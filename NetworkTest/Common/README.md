@@ -211,7 +211,7 @@ connect; subsequent communication uses nonblocking sockets.
 ## CrazyArcade online movement and Bomb/Ice combat
 
 Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
-(protocol **14**). Run Server.exe on the host, then run
+(protocol **15**). Run Server.exe on the host, then run
 `CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
 127.0.0.1:9000; launching without arguments keeps the local game.
 
@@ -281,13 +281,13 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (14) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (15) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
 | SC_PEER_LEFT | 5 | departed playerId uint8 (1 or 2) |
 | SC_SNAPSHOT | 6 | map and basic item state |
-| SC_EVENT | 7 | obstacle broken or basic item collected |
+| SC_EVENT | 7 | obstacle broken, item collected or item destroyed |
 | CS_INPUT | 8 | directionMask uint8, sequence uint32, placeBomb uint8 |
 | SC_STATE | 9 | Ice hearts/result, Forest apples/baskets/result, or City time/result/train |
 | SC_MATCH_END | 10 | final Ice, Forest, or City state |
@@ -316,7 +316,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 14. Once both
+Build the server and both clients together for protocol version 15. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -402,7 +402,7 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 14. Versions 1 through 13
+Build both applications together for protocol version 15. Versions 1 through 14
 are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
@@ -763,3 +763,10 @@ before each appearance, then traverses the original route from x=-690 to x=1125
 in five-pixel steps every nominal 12 ms. The clients draw the received step
 and stop updating at match end. Train collisions and item drops are separate
 City rules.
+
+## Exposed item destruction (protocol 15)
+
+A wall-breaking blast reveals its hidden item. The item survives all blasts
+starting in the same server update. Later blasts remove an exposed item on
+the reached tile and send SC_EVENT kind 5 (uint16 cell ID, uint8 item type)
+to both clients. Destroying an item does not award its pickup effect.

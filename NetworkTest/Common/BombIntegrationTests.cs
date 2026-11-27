@@ -51,10 +51,16 @@ public static partial class BombIntegrationTests
                     if(data[offset+7]==1)obstacles[cell]=9;
                 }
             } else if(type==7) {
-                Check(data.Length==4 && data[0]==1,"receiver obstacle event");
+                Check(data.Length==4 && (data[0]==1 || data[0]==5),"receiver board event");
                 int cell=((data[1]<<8)|data[2])-1;
                 Check(cell>=0 && cell<400,"receiver event cell");
-                obstacles[cell]=0;items[cell]=data[3];
+                if(data[0]==1) {
+                    obstacles[cell]=0;items[cell]=data[3];
+                } else {
+                    Check(data[3]>0 && data[3]==items[cell] &&
+                          (obstacles[cell]==0 || obstacles[cell]==9),"receiver item destruction");
+                    items[cell]=0;
+                }
             } else if(type==9 || type==10) {
                 Check(data.Length==3,"receiver Ice state size");
                 if(type==9) {
@@ -99,9 +105,9 @@ public static partial class BombIntegrationTests
                 Check(listening.Wait(5000) && listening.Result != null &&
                       listening.Result.Contains("Server listening"), "server startup");
                 first = Connect(); a = first.GetStream();
-                Send(a, 1, 0, new byte[]{0,1,0,14}); Receive(a,2,0); Receive(a,3,0);
+                Send(a, 1, 0, new byte[]{0,1,0,15}); Receive(a,2,0); Receive(a,3,0);
                 second = Connect(); b = second.GetStream();
-                Send(b,1,0,new byte[]{0,1,0,14}); Receive(b,2,0); Receive(b,3,0); Receive(a,3,0);
+                Send(b,1,0,new byte[]{0,1,0,15}); Receive(b,2,0); Receive(b,3,0); Receive(a,3,0);
                 Send(a,15,0,new byte[]{1,3}); Receive(a,3,0); Receive(b,3,0);
                 for (int attempt=0; attempt<20; ++attempt) {
                     Send(a,11,0,new byte[]{1}); Receive(a,3,0); Receive(b,3,0);
