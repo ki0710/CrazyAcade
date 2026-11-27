@@ -375,7 +375,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (onlineMap.stage == 2) {
                         train = Train{};
                         init_train(train);
-                        ApplyOnlineTrain(train, onlineMap.city.trainStep);
+                        ApplyOnlineTrain(train, onlineMap.city);
                     }
                     SetWindowText(hWnd, L"CrazyArcade Online | Waiting for both players, C cancel");
                     send(PacketType::CS_LOADED, onlineMatchId, {});
@@ -475,9 +475,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (onlineMap.stage == 2) {
                             p1currentTime = onlineMap.city.remaining[0];
                             p2currentTime = onlineMap.city.remaining[1];
-                            ApplyOnlineTrain(train, onlineMap.city.trainStep);
+                            ApplyOnlineTrain(train, onlineMap.city);
                         }
-                        if (pickup.playerId) {
+                        if (pickup.playerId && pickup.item < kCityClockItem) {
                             auto& player = pickup.playerId == 1 ? p1 : p2;
                             auto& itemCounts = pickup.playerId == 1 ? p1_current_item : p2_current_item;
                             ApplyOnlineAbilities(player, onlineMap.abilities[pickup.playerId - 1]);
@@ -1226,12 +1226,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 						HBITMAP oldTimeBitmap = (HBITMAP)SelectObject(timeDC, timeBitmap);
 						TransparentBlt(mem, 100, 250, 40, 46, timeDC, 0, 0, 40, 46, RGB(255, 0, 255));
 						TransparentBlt(mem, 1255, 250, 40, 46, timeDC, 0, 0, 40, 46, RGB(255, 0, 255));
-						wchar_t p1Time[3];
-                        swprintf(p1Time, 3, L"%d", p1currentTime);
-						DrawOutlinedText(mem, 155, 250, p1Time);
-						wchar_t p2Time[3];
-						swprintf(p2Time, 3, L"%d", p2currentTime);
-						DrawOutlinedText(mem, 1310, 250, p2Time);
+						DrawOutlinedText(mem, 155, 250, std::to_wstring(p1currentTime).c_str());
+						DrawOutlinedText(mem, 1310, 250, std::to_wstring(p2currentTime).c_str());
 						SelectObject(timeDC, oldTimeBitmap);
 						DeleteDC(timeDC);
 

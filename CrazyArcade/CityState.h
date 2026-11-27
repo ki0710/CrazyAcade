@@ -17,6 +17,15 @@ constexpr int kCityTrainWaitMs = 2400;
 constexpr int kCityTrainCycleMs = kCityTrainWaitMs + kCityTrainTravelSteps * kCityTrainStepMs;
 constexpr int kCityTrainHitSeconds = 5;
 constexpr int kCityBombHitSeconds = 2;
+constexpr int kCityClockBonusSeconds = 5;
+constexpr int kCityMaxSeconds = 65535; // Largest time the wire format can carry.
+constexpr int kCityClockItem = 4;
+constexpr int kCityDropCount = 6;
+constexpr int kCityDropTrainX = 200;
+constexpr int kCityDropTrainStep = (kCityDropTrainX - kCityTrainStartX) / kCityTrainStepPixels + 1;
+constexpr int kCityDropStartX = kCityTrainWidth - 250;
+constexpr int kCityDropStartY = kCityTrainTop + kCityTrainHeight - 40;
+constexpr int kCityDropStepPixels = 10;
 
 inline int CityTrainLeft(int step) {
     return kCityTrainStartX + (step - 1) * kCityTrainStepPixels;
@@ -31,10 +40,15 @@ inline bool CityTrainHits(int step, int x, int y) {
 
 enum class CityResult : std::uint8_t { Playing, Player1Win, Player2Win, Draw };
 
+struct CityFallingItem {
+    int x = 0, y = 0, item = 0; // Logical screen position; item 0 is inactive.
+};
+
 struct CityState {
     int remaining[2] = {kCityStartSeconds, kCityStartSeconds};
     CityResult result = CityResult::Playing;
     int trainStep = 0; // 0 is hidden; active positions are numbered from 1.
+    CityFallingItem fallingItems[kCityDropCount];
 };
 
 inline bool AdvanceCityClock(CityState& state, std::uint64_t seconds) {

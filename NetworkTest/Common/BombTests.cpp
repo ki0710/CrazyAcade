@@ -37,7 +37,9 @@ int main() {
     cityEnd.header.packetType = PacketType::SC_MATCH_END;
     city.trainStep = kCityTrainTravelSteps;
     cityEnd.payload = EncodeCityState(city);
-    Check(cityEnd.payload == (std::vector<std::uint8_t>{0, 0, 0, 0, 3, 1, 108}));
+    std::vector<std::uint8_t> expectedCityEnd = {0, 0, 0, 0, 3, 1, 108};
+    expectedCityEnd.resize(37, 0);
+    Check(cityEnd.payload == expectedCityEnd);
     Check(ApplyMapItemPacket(cityEnd, cityView));
     Check(cityView.city.result == CityResult::Draw && cityView.city.trainStep == kCityTrainTravelSteps);
     cityEnd.payload[6] = 109;
@@ -45,6 +47,9 @@ int main() {
     cityEnd.payload[6] = 107;
     Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.trainStep == kCityTrainTravelSteps);
     cityEnd.payload[6] = 108;
+    cityEnd.payload[11] = 5;
+    Check(!ApplyMapItemPacket(cityEnd, cityView));
+    cityEnd.payload[11] = 0;
     cityEnd.payload[4] = 1;
     Check(!ApplyMapItemPacket(cityEnd, cityView) && cityView.city.result == CityResult::Draw);
     int apples = 2;
@@ -253,6 +258,6 @@ int main() {
     Check(TryPlaceBomb(bombs, next, 1, moving, ability, board, 0));
     Check(bombs[0].col == 7 && board[11][7].obstacle == 9 && board[11][8].obstacle == 0);
     Check(InputPayload(kInputRight, 3, true) == (std::vector<std::uint8_t>{8, 0, 0, 0, 3, 1}));
-    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 15}));
+    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 16}));
     std::cout << "Bomb/Ice/codecs: " << checks << " checks passed.\n";
 }

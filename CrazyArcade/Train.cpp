@@ -16,11 +16,17 @@ void init_train(Train& train) {
 	train.spawnInterval = 1000; // 기차 생성 간격 (10초)
 	train.is_spawned = false; // 기차가 생성되었는지 여부
 }
-void ApplyOnlineTrain(Train& train, int step) {
-    train.is_spawned = step != 0;
+void ApplyOnlineTrain(Train& train, const CityState& city) {
+    train.is_spawned = city.trainStep != 0;
     if (train.is_spawned) {
-        train.Pos.left = CityTrainLeft(step);
+        train.Pos.left = CityTrainLeft(city.trainStep);
         train.Pos.right = train.Pos.left + kCityTrainWidth;
+    }
+    for (int i = 0; i < kCityDropCount; ++i) {
+        const auto& falling = city.fallingItems[i];
+        train.item[i].is_active = falling.item != 0;
+        train.item[i].type = falling.item;
+        train.item[i].pos = {falling.x, falling.y};
     }
 }
 
@@ -37,7 +43,7 @@ int move_train(Train& train) {
 			train.collisionP1 = false; // 충돌 상태 초기화
 			train.collisionP2 = false; // 충돌 상태 초기화
 		}
-		if (train.Pos.left == 200) {
+		if (train.Pos.left == kCityDropTrainX) {
 			return 1;
 		}
 	}
