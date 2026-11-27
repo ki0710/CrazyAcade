@@ -5,6 +5,14 @@ struct GridCell {
     int x, y; // x = column, y = row
 };
 
+inline GridCell BoardCellCenter(int col, int row) {
+    // The original 1280 x 800 canvas has 40-pixel cells and this tile origin.
+    constexpr int tilePixels = 40;
+    constexpr int firstCenterX = 345;
+    constexpr int firstCenterY = 40;
+    return {firstCenterX + col * tilePixels, firstCenterY + row * tilePixels};
+}
+
 inline GridCell PlayerStartCell(int stage, int playerId) {
     if (stage == 1) return {playerId == 1 ? 8 : 11, 18};
     if (stage == 2) return playerId == 1 ? GridCell{8, 5} : GridCell{11, 14};

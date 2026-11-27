@@ -20,6 +20,8 @@ struct MapItemState {
 // Returns an empty payload when the source state cannot be encoded.
 std::vector<std::uint8_t> EncodeMapItemSnapshot(const MapItemState& state);
 std::vector<std::uint8_t> EncodeObstacleBroken(int x, int y, const Board& cell);
+std::vector<std::uint8_t> EncodeCityItemLanded(int x, int y, int item);
+std::vector<std::uint8_t> EncodeItemDestroyed(int x, int y, int item);
 std::vector<std::uint8_t> EncodeItemCollected(
     int x, int y, int item, int playerId, const ItemAbilities& abilities);
 

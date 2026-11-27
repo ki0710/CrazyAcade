@@ -6,19 +6,26 @@ namespace network {
 namespace {
 constexpr std::uint8_t kObstacleBroken = 1;
 constexpr std::uint8_t kItemCollected = 2;
+constexpr std::uint8_t kItemDestroyed = 5;
+constexpr std::uint8_t kCityItemLanded = 6;
 constexpr std::size_t kCellSize = 4;
 constexpr std::size_t kAbilitySize = 5;
 constexpr std::size_t kEventSize = 4;
 constexpr std::size_t kSnapshotSize = 1 + MAP_TILES * MAP_TILES * kCellSize + 2 * kAbilitySize;
 constexpr std::size_t kIceStateSize = 3;
-constexpr std::size_t kCityStateSize = 7;
+constexpr std::size_t kCityItemSize = 5;
+constexpr std::size_t kCityStateSize = 7 + kCityDropCount * kCityItemSize;
 // Two existing uint32 carried counts, two uint8 basket totals, and one uint8 winner.
 constexpr std::size_t kForestStateSize = 11;
 
 bool ValidCityState(const CityState& state) {
     if (state.trainStep < 0 || state.trainStep > kCityTrainTravelSteps) return false;
     for (int remaining : state.remaining)
-        if (remaining < 0 || remaining > 65535) return false;
+        if (remaining < 0 || remaining > kCityMaxSeconds) return false;
+    for (const auto& item : state.fallingItems) {
+        if (item.item < 0 || item.item > kCityClockItem || item.x < 0 || item.x > 1280 ||
+            item.y < 0 || item.y > 800 || (!item.item && (item.x || item.y))) return false;
+    }
 
     switch (state.result) {
     case CityResult::Playing:    return state.remaining[0] > 0 && state.remaining[1] > 0;
@@ -35,6 +42,11 @@ bool ReadCityState(const std::uint8_t* p, CityState& state) {
     decoded.remaining[1] = PayloadWord(p + 2);
     decoded.result = static_cast<CityResult>(p[4]);
     decoded.trainStep = PayloadWord(p + 5);
+    p += 7;
+    for (auto& item : decoded.fallingItems) {
+        item = {PayloadWord(p), PayloadWord(p + 2), p[4]};
+        p += kCityItemSize;
+    }
     if (!ValidCityState(decoded)) return false;
     state = decoded;
     return true;
@@ -44,9 +56,7 @@ bool ApplyCityUpdate(const Packet& packet, CityState& state) {
     CityState decoded;
     if (packet.payload.size() != kCityStateSize || !ReadCityState(packet.payload.data(), decoded)) return false;
     if (packet.header.packetType == PacketType::SC_MATCH_END && decoded.result == CityResult::Playing) return false;
-    if (state.result != CityResult::Playing &&
-        (decoded.result != state.result || decoded.remaining[0] != state.remaining[0] ||
-         decoded.remaining[1] != state.remaining[1] || decoded.trainStep != state.trainStep)) return false;
+    if (state.result != CityResult::Playing && EncodeCityState(state) != packet.payload) return false;
     state = decoded;
     return true;
 }
@@ -215,7 +225,7 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, I
     if (payload.size() < kEventSize) return false;
     const int id = PayloadWord(payload.data() + 1);
     const int item = payload[3];
-    if (id < 1 || id > MAP_TILES * MAP_TILES || item > 3) return false;
+    if (id < 1 || id > MAP_TILES * MAP_TILES || item > (state.stage == 2 ? 4 : 3)) return false;
     Board& cell = state.board[(id - 1) / MAP_TILES][(id - 1) % MAP_TILES];
 
     if (payload[0] == kObstacleBroken) {
@@ -226,7 +236,19 @@ bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, I
         }
         return true;
     }
-    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize || item == 0)
+    if (payload[0] == kCityItemLanded) {
+        if (state.stage != 2 || payload.size() != kEventSize || !item ||
+            (cell.obstacle != 0 && cell.obstacle != 9) || (cell.item && cell.item != item)) return false;
+        cell.item = item;
+        return true;
+    }
+    if (payload[0] == kItemDestroyed) {
+        if (payload.size() != kEventSize || !item || (cell.obstacle != 0 && cell.obstacle != 9) ||
+            (cell.item != 0 && cell.item != item)) return false;
+        cell.item = 0;
+        return true;
+    }
+    if (payload[0] != kItemCollected || payload.size() != kEventSize + 1 + kAbilitySize || !item)
         return false;
 
     const int playerId = payload[4];
@@ -284,6 +306,11 @@ std::vector<std::uint8_t> EncodeCityState(const CityState& state) {
     for (int remaining : state.remaining) AppendWord(payload, remaining);
     payload.push_back(static_cast<std::uint8_t>(state.result));
     AppendWord(payload, state.trainStep);
+    for (const auto& item : state.fallingItems) {
+        AppendWord(payload, item.x);
+        AppendWord(payload, item.y);
+        payload.push_back(static_cast<std::uint8_t>(item.item));
+    }
     return payload;
 }
 
@@ -322,9 +349,19 @@ std::vector<std::uint8_t> EncodeObstacleBroken(int x, int y, const Board& cell) 
     return CellEvent(kObstacleBroken, x, y, cell.item);
 }
 
+std::vector<std::uint8_t> EncodeItemDestroyed(int x, int y, int item) {
+    if (item < 1 || item > 4) return {};
+    return CellEvent(kItemDestroyed, x, y, item);
+}
+
+std::vector<std::uint8_t> EncodeCityItemLanded(int x, int y, int item) {
+    if (item < 1 || item > kCityClockItem) return {};
+    return CellEvent(kCityItemLanded, x, y, item);
+}
+
 std::vector<std::uint8_t> EncodeItemCollected(
     int x, int y, int item, int playerId, const ItemAbilities& abilities) {
-    if (item < 1 || item > 3 || playerId < 1 || playerId > 2 || !ValidAbilities(abilities)) return {};
+    if (item < 1 || item > kCityClockItem || playerId < 1 || playerId > 2 || !ValidAbilities(abilities)) return {};
     auto payload = CellEvent(kItemCollected, x, y, item);
     if (payload.empty()) return payload;
     payload.push_back(static_cast<std::uint8_t>(playerId));

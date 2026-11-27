@@ -44,8 +44,14 @@ inline void ReleaseBombCell(const ServerBomb& bomb, const std::vector<ServerBomb
     if (board[bomb.row][bomb.col].obstacle == 9) board[bomb.row][bomb.col].obstacle = 0;
 }
 
+struct DestroyedItem {
+    GridCell cell;
+    int item;
+};
+
 struct BombChanges {
     std::vector<GridCell> broken;
+    std::vector<DestroyedItem> destroyedItems;
     std::vector<int> treeOwners;
     std::vector<int> hits; // Repeated ID means hits by different bombs.
 };
@@ -61,10 +67,20 @@ inline GridCell PlayerHitCell(const PlayerPosition& p) {
             static_cast<int>(p.cell.y + (p.target.y - p.cell.y) * fraction + 0.5f)};
 }
 
+inline void DestroyExposedItem(Board& cell, int col, int row, BombChanges& changes) {
+    if (!cell.item || (cell.obstacle != 0 && cell.obstacle != 9)) return;
+    // An item exposed by any Bomb in this update first survives on the board.
+    for (const auto& broken : changes.broken)
+        if (broken.x == col && broken.y == row) return;
+    changes.destroyedItems.push_back({{col, row}, cell.item});
+    cell.item = 0;
+}
+
 inline void ComputeBombRange(ServerBomb& b, Board board[MAP_TILES][MAP_TILES],
                              bool forest, BombChanges& changes) {
     const int dx[] = {-1, 1, 0, 0}, dy[] = {0, 0, -1, 1};
     int* reach[] = {&b.left, &b.right, &b.up, &b.down};
+    DestroyExposedItem(board[b.row][b.col], b.col, b.row, changes);
     for (int dir = 0; dir < 4; ++dir) {
         for (int step = 1; step <= b.range; ++step) {
             const int col = b.col + dx[dir] * step, row = b.row + dy[dir] * step;
@@ -81,6 +97,7 @@ inline void ComputeBombRange(ServerBomb& b, Board board[MAP_TILES][MAP_TILES],
                 if (forest) changes.treeOwners.push_back(b.owner);
                 break;
             }
+            DestroyExposedItem(cell, col, row, changes);
             // 9 passes without chain reactions; 3..6 keep the local pass-through rule.
         }
     }

@@ -1,12 +1,11 @@
 #include "BoardRender.h"
 #include "ResourceManager.h"
+#include "MovementRules.h"
 
 POINT GetBoardScreenPosition(int x, int y)
 {
-    int mapSize = min(WINDOW_WIDTH, WINDOW_HEIGHT);
-    int tile = mapSize / MAP_TILES / 2;
-    int ox = (WINDOW_WIDTH - mapSize) / 2;
-    return {85 + ox + tile + x * tile * 2, 2 * tile + y * tile * 2};
+    const auto center = BoardCellCenter(x, y);
+    return {center.x, center.y};
 }
 
 void draw_tile_forest(HDC hdc)

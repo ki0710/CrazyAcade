@@ -1,6 +1,7 @@
 #pragma once
 #include"pch.h"
 #include"Board.h"
+#include "CityState.h"
 
 typedef struct FloatingItem {
 	POINT pos;
@@ -16,11 +17,11 @@ typedef struct Train {
 	int spawnTime;
 	int spawnInterval;
 	bool is_spawned; // 기차가 생성되었는지 여부
-	FloatingItem item[6]; // 기차에서 생성되는 아이템
+	FloatingItem item[kCityDropCount]; // 기차에서 생성되는 아이템
 } Train;
 
 void init_train(Train& train);
-void ApplyOnlineTrain(Train& train, int step);
+void ApplyOnlineTrain(Train& train, const CityState& city);
 int move_train(Train& train);
 void draw_train(HDC hdc, Train& train);
 void make_item(Train& train, Board board[MAP_TILES][MAP_TILES]);

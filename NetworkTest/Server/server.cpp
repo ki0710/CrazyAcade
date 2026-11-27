@@ -8,6 +8,7 @@
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -137,6 +138,9 @@ public:
     Clock::time_point nextMoveTick;
     Clock::time_point gameEpoch;
     std::uint64_t lastCitySecond = 0;
+    std::uint64_t lastCityTrainHitPass[2]{};
+    std::uint64_t lastCityDropPass = 0, cityDropStartedAt = 0;
+    GridCell cityDropTargets[kCityDropCount]{};
     std::vector<ServerBomb> bombs;
     std::deque<int> pendingBombs;
     std::uint32_t nextBombId = 1, bombSequence = 0;
@@ -193,15 +197,83 @@ public:
         return changed;
     }
 
-    void CollectForestItems(std::vector<std::vector<std::uint8_t>>& events) {
-        if (mapItems.stage != 1 || phase != Phase::Playing) return;
+    bool CollectItems(std::vector<std::vector<std::uint8_t>>& events) {
+        if (phase != Phase::Playing || mapItems.stage == 3) return false;
+        bool timeChanged = false;
         for (int i = 0; i < 2; ++i) {
             const auto& cell = players[i].position.cell;
             if (!IsMapCell(cell.x, cell.y)) continue;
+            auto& tile = mapItems.board[cell.y][cell.x];
             auto& abilities = mapItems.abilities[i];
-            const int item = CollectBasicItem(mapItems.board[cell.y][cell.x], abilities);
-            if (item) events.push_back(EncodeItemCollected(cell.x, cell.y, item, i + 1, abilities));
+            if (mapItems.stage == 2 && !tile.obstacle && tile.item == kCityClockItem) {
+                tile.item = 0;
+                auto& seconds = mapItems.city.remaining[i];
+                const int increased = (std::min)(seconds + kCityClockBonusSeconds, kCityMaxSeconds);
+                timeChanged |= increased != seconds;
+                seconds = increased;
+                events.push_back(EncodeItemCollected(cell.x, cell.y, kCityClockItem, i + 1, abilities));
+            } else {
+                const int item = CollectBasicItem(tile, abilities);
+                if (item) events.push_back(EncodeItemCollected(cell.x, cell.y, item, i + 1, abilities));
+            }
         }
+        return timeChanged;
+    }
+
+    bool SpawnCityDrops() {
+        std::vector<GridCell> empty;
+        for (int row = 0; row < MAP_TILES; ++row)
+            for (int col = 0; col < MAP_TILES; ++col) {
+                const auto& tile = mapItems.board[row][col];
+                if (!tile.obstacle && !tile.item) empty.push_back({col, row});
+            }
+
+        bool spawned = false;
+        for (int i = 0; i < kCityDropCount && !empty.empty(); ++i) {
+            const auto index = std::rand() % empty.size();
+            cityDropTargets[i] = empty[index];
+            empty[index] = empty.back();
+            empty.pop_back();
+            mapItems.city.fallingItems[i] = {kCityDropStartX, kCityDropStartY, 1 + std::rand() % kCityClockItem};
+            spawned = true;
+        }
+        return spawned;
+    }
+
+    bool UpdateCityDrops(std::uint64_t ms, std::vector<std::vector<std::uint8_t>>& landings) {
+        auto& city = mapItems.city;
+        const auto pass = ms / kCityTrainCycleMs + 1;
+        bool changed = false;
+        if (city.trainStep >= kCityDropTrainStep && lastCityDropPass != pass) {
+            lastCityDropPass = pass;
+            cityDropStartedAt = ms;
+            changed = SpawnCityDrops();
+        }
+        const double traveled = (ms - cityDropStartedAt) * double(kCityDropStepPixels) / kCityTrainStepMs;
+        for (int i = 0; i < kCityDropCount; ++i) {
+            auto& item = city.fallingItems[i];
+            if (!item.item) continue;
+            const auto tile = cityDropTargets[i];
+            const auto end = BoardCellCenter(tile.x, tile.y);
+            const int dx = end.x - kCityDropStartX, dy = end.y - kCityDropStartY;
+            const double distance = std::hypot(dx, dy);
+            if (traveled >= distance) {
+                auto& cell = mapItems.board[tile.y][tile.x];
+                if (!cell.item && (cell.obstacle == 0 || cell.obstacle == 9)) {
+                    cell.item = item.item;
+                    landings.push_back(EncodeCityItemLanded(tile.x, tile.y, item.item));
+                }
+                item = {};
+                changed = true;
+            } else {
+                const int x = kCityDropStartX + static_cast<int>(std::lround(dx * traveled / distance));
+                const int y = kCityDropStartY + static_cast<int>(std::lround(dy * traveled / distance));
+                changed |= item.x != x || item.y != y;
+                item.x = x;
+                item.y = y;
+            }
+        }
+        return changed;
     }
 
     void Queue(Client& client, PacketType type, const std::vector<std::uint8_t>& payload,
@@ -266,19 +338,35 @@ public:
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
-    bool TickCity(std::uint64_t milliseconds) {
+    bool TickCity(std::uint64_t milliseconds, const std::vector<int>& bombHits) {
         if (!IsPlaying() || mapItems.stage != 2) return false;
+        auto& city = mapItems.city;
         const auto seconds = milliseconds / 1000;
-        const bool clockChanged = AdvanceCityClock(mapItems.city, seconds - lastCitySecond);
+        bool changed = AdvanceCityClock(city, seconds - lastCitySecond);
         lastCitySecond = seconds;
-        const bool trainChanged = UpdateCityTrain(mapItems.city, milliseconds);
-        return clockChanged || trainChanged;
+        for (int playerId : bombHits) changed |= ReduceCityTime(city, playerId - 1, kCityBombHitSeconds);
+        if (city.trainStep) {
+            const auto pass = milliseconds / kCityTrainCycleMs + 1;
+            for (int i = 0; i < 2; ++i) {
+                if (lastCityTrainHitPass[i] == pass) continue;
+                const auto& position = players[i].position;
+                const auto from = BoardCellCenter(position.cell.x, position.cell.y);
+                const auto to = BoardCellCenter(position.target.x, position.target.y);
+                const int x = from.x + (to.x - from.x) * position.progress / kCellUnits;
+                const int y = from.y + (to.y - from.y) * position.progress / kCellUnits;
+                if (!CityTrainHits(city.trainStep, x, y)) continue;
+                lastCityTrainHitPass[i] = pass;
+                changed |= ReduceCityTime(city, i, kCityTrainHitSeconds);
+            }
+        }
+        return changed;
     }
     void TickMovement(Clock::time_point now) {
         if (!NeedsGameTick()) return;
         constexpr auto interval = std::chrono::milliseconds(kMoveTickMs);
         bool changed = false;
         bool advanced = false;
+        bool cityChanged = false;
         std::vector<std::vector<std::uint8_t>> pickups;
         // Bound catch-up after a stalled process, keeping network servicing responsive.
         for (int steps = 0; steps < 5 && now >= nextMoveTick; ++steps) {
@@ -288,7 +376,7 @@ public:
                 for (int i = 0; i < 2; ++i)
                     changed |= players[i].Step(mapItems.board, mapItems.abilities[i].speed);
             // Inspect each step's completed cells, including intermediate catch-up steps.
-            CollectForestItems(pickups);
+            cityChanged |= CollectItems(pickups);
             nextMoveTick += interval;
         }
         if (now >= nextMoveTick) nextMoveTick = now + interval;
@@ -308,13 +396,19 @@ public:
         std::vector<std::vector<std::uint8_t>> brokenEvents;
         for (const auto& cell : changes.broken)
             brokenEvents.push_back(EncodeObstacleBroken(cell.x, cell.y, mapItems.board[cell.y][cell.x]));
-        const auto beforeExplosion = pickups.size();
-        CollectForestItems(pickups); // Includes items exposed or freed from Bomb occupancy this tick.
+        const auto earlyPickups = pickups.size();
+        std::vector<std::vector<std::uint8_t>> landings;
+        if (IsPlaying() && mapItems.stage == 2) {
+            cityChanged |= UpdateCityTrain(mapItems.city, milliseconds);
+            cityChanged |= UpdateCityDrops(milliseconds, landings);
+        }
+        // Late pickups include newly exposed or landed items.
+        cityChanged |= CollectItems(pickups);
         const bool iceChanged = ResolveIceHits(changes.hits);
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
         const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
-        const bool cityChanged = TickCity(milliseconds);
+        cityChanged |= TickCity(milliseconds, changes.hits);
         const bool cityEnded = mapItems.stage == 2 && FinishCityTick(mapItems.city);
         const bool ended = phase == Phase::Playing && (forestWon || iceEnded || cityEnded);
         if (ended) {
@@ -325,11 +419,14 @@ public:
         }
         if (changed) BroadcastPlayers();
         // Early pickups precede any new Bomb occupancy. Late pickups follow exposure and release.
-        for (std::size_t i = 0; i < beforeExplosion; ++i)
+        for (std::size_t i = 0; i < earlyPickups; ++i)
             Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
         for (const auto& event : brokenEvents) Broadcast(PacketType::SC_EVENT, event, matchId);
+        for (const auto& item : changes.destroyedItems)
+            Broadcast(PacketType::SC_EVENT, EncodeItemDestroyed(item.cell.x, item.cell.y, item.item), matchId);
         BroadcastBombs(milliseconds);
-        for (std::size_t i = beforeExplosion; i < pickups.size(); ++i)
+        for (const auto& landing : landings) Broadcast(PacketType::SC_EVENT, landing, matchId);
+        for (std::size_t i = earlyPickups; i < pickups.size(); ++i)
             Broadcast(PacketType::SC_EVENT, pickups[i], matchId);
         if (forestChanged) Broadcast(PacketType::SC_STATE, EncodeForestState(mapItems.forest), matchId);
         if (iceChanged) Broadcast(PacketType::SC_STATE, EncodeIceState(mapItems.ice), matchId);
@@ -387,6 +484,8 @@ public:
             moveTick = 1;
             gameEpoch = Clock::now();
             lastCitySecond = 0;
+            lastCityTrainHitPass[0] = lastCityTrainHitPass[1] = 0;
+            lastCityDropPass = cityDropStartedAt = 0;
             nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);
             Broadcast(PacketType::SC_MATCH_START, {}, matchId);
             BroadcastPlayers();

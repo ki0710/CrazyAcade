@@ -87,7 +87,7 @@ struct TestRoom {
             } else if (packet.header.packetType != PacketType::SC_PLAYER_STATE) {
                 ItemPickup pickup;
                 Check(ApplyMapItemPacket(packet, views[i], &pickup), "apply Room event in wire order");
-                if (pickup.playerId) ++counts[i][pickup.playerId - 1][pickup.item - 1];
+                if (pickup.playerId && pickup.item < kCityClockItem) ++counts[i][pickup.playerId - 1][pickup.item - 1];
             }
         }
     }
@@ -135,12 +135,120 @@ void ExposureAndOccupancy() {
     occupied.Apply(occupied.Tick(20));
     Check(world.board[6][12].item == 3, "planted Bomb blocks pickup");
     const auto released = occupied.Tick(1060);
-    Check(released.size() == 2 && released[0].header.packetType == PacketType::SC_BOMB_STATE &&
-          released[1].payload[0] == 2, "release Bomb occupancy before collecting");
+    Check(released.size() == 2 && released[0].payload[0] == 5 &&
+          released[1].header.packetType == PacketType::SC_BOMB_STATE, "Bomb destroys item on its own tile");
     occupied.Apply(released);
     for (int i = 0; i < 2; ++i)
-        Check(occupied.views[i].board[6][12].item == 0 && occupied.counts[i][1][2] == 1,
-              "P2 pickup visible to both receivers");
+        Check(occupied.views[i].board[6][12].item == 0 && occupied.counts[i][1][2] == 0,
+              "both receivers remove the item without awarding it");
+}
+
+void ExposedItemDestruction() {
+    TestRoom test;
+    auto& room = test.room;
+    auto& world = room.mapItems;
+    world.board[6][5] = {1, 1, 1, 2};
+    test.CopyInitialState();
+    test.MoveTo(0, 4, 6);
+    test.MoveTo(1, 6, 6);
+    for (int i = 0; i < 2; ++i)
+        Check(TryPlaceBomb(room.bombs, room.nextBombId, i + 1, room.players[i],
+                          world.abilities[i], world.board, 0), "Bomb beside hidden item");
+    test.Apply(test.Tick(20));
+    const auto exposed = test.Tick(1060);
+    test.Apply(exposed);
+    Check(exposed.size() == 2 && exposed[0].payload == (std::vector<std::uint8_t>{1, 0, 126, 2}),
+          "same-tick blasts break the wall and preserve the newly exposed item");
+    test.Apply(test.Tick(1080));
+    for (const auto& view : test.views)
+        Check(view.board[6][5].obstacle == 0 && view.board[6][5].item == 2,
+              "both clients retain the exposed item during the original blasts");
+
+    Check(TryPlaceBomb(room.bombs, room.nextBombId, 1, room.players[0],
+                       world.abilities[0], world.board, 1080), "place a later Bomb");
+    test.Apply(test.Tick(1100));
+    const auto destroyed = test.Tick(2140);
+    test.Apply(destroyed);
+    Check(destroyed.size() == 2 && destroyed[0].payload == (std::vector<std::uint8_t>{5, 0, 126, 2}),
+          "later blast sends exactly one destruction event");
+    Check(world.board[6][5].item == 0, "server removes exposed item");
+    for (const auto& view : test.views)
+        Check(view.board[6][5].item == 0 && view.abilities[0].bombLimit == 2,
+              "both clients remove the exposed item without applying a bonus");
+}
+
+void CityDamage() {
+    TestRoom test;
+    auto& room = test.room;
+    auto& world = room.mapItems;
+    world.stage = 2;
+    test.MoveTo(0, 3, 7); // P1 on the track, P2 safely north of it.
+    test.CopyInitialState();
+    test.Apply(test.Tick(2400));
+    Check(world.city.remaining[0] == 28 && world.city.remaining[1] == 28, "train still short of P1");
+    test.Apply(test.Tick(2800));
+    Check(world.city.remaining[0] == 23 && world.city.remaining[1] == 28, "train subtracts five seconds from P1");
+    test.Apply(test.Tick(2820));
+    Check(world.city.remaining[0] == 23, "same train does not repeatedly hit P1");
+    Check(TryPlaceBomb(room.bombs, room.nextBombId, 2, room.players[1],
+                       world.abilities[1], world.board, 2820), "City Bomb");
+    test.Apply(test.Tick(2840));
+    test.Apply(test.Tick(3880));
+    Check(world.city.remaining[0] == 22 && world.city.remaining[1] == 25,
+          "City Bomb deducts two seconds from the player it hits");
+    test.Apply(test.Tick(3900));
+    Check(world.city.remaining[1] == 25, "same blast does not deduct again");
+    test.Apply(test.Tick(9600));
+    for (const auto& view : test.views)
+        Check(view.city.remaining[0] == 11 && view.city.remaining[1] == 19,
+              "next train can deduct again; both receive the same time");
+}
+
+void CityDropsAndClock() {
+    TestRoom drops;
+    auto& room = drops.room;
+    auto& world = room.mapItems;
+    world.stage = 2;
+    for (auto& row : world.board) for (auto& tile : row) tile.obstacle = 2;
+    for (int col = 0; col < kCityDropCount; ++col) world.board[14][col] = {};
+    drops.CopyInitialState();
+    drops.Apply(drops.Tick(4520));
+    Check(world.city.fallingItems[0].item == 0, "no drop before the train reaches the drop point");
+    drops.Apply(drops.Tick(4540));
+    for (const auto& view : drops.views)
+        for (const auto& item : view.city.fallingItems)
+            Check(item.item && item.x == kCityDropStartX && item.y == kCityDropStartY,
+                  "six items appear at the same place on both clients");
+    drops.Apply(drops.Tick(4560));
+    Check(drops.views[0].city.fallingItems[0].x != kCityDropStartX, "clients receive in-flight positions");
+    drops.Apply(drops.Tick(5480));
+    for (const auto& view : drops.views) {
+        for (int col = 0; col < kCityDropCount; ++col)
+            Check(view.board[14][col].item > 0 && view.board[14][col].item == world.board[14][col].item,
+                  "one item per empty tile and both boards agree");
+        for (const auto& item : view.city.fallingItems) Check(item.item == 0, "landing removes in-flight item");
+    }
+    drops.Apply(drops.Tick(5500));
+    Check(world.city.fallingItems[0].item == 0, "same train does not start a second drop");
+
+    TestRoom clock;
+    auto& city = clock.room.mapItems;
+    city.stage = 2;
+    city.city.remaining[0] = 1;
+    clock.MoveTo(0, 3, 7);
+    city.board[7][3].item = kCityClockItem;
+    MovingPlayer bomber;
+    bomber.position.cell = bomber.position.target = {4, 7};
+    Check(TryPlaceBomb(clock.room.bombs, clock.room.nextBombId, 2, bomber,
+                       city.abilities[1], city.board, 0), "Bomb adjacent to clock");
+    clock.CopyInitialState();
+    clock.Apply(clock.Tick(1060));
+    for (const auto& view : clock.views)
+        Check(view.board[7][3].item == 0 && view.city.remaining[0] == 3 && view.city.remaining[1] == 29 &&
+              view.city.result == CityResult::Playing && view.abilities[0].blastRange == 1,
+              "clock adds five to its collector before decay and two-second Bomb damage");
+    clock.Apply(clock.Tick(1080));
+    Check(city.city.remaining[0] == 3, "clock bonus and Bomb damage are not applied twice");
 }
 
 void ContestAndPlacement() {
@@ -245,9 +353,12 @@ int main() {
     WSADATA data{};
     Check(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock startup");
     ExposureAndOccupancy();
+    ExposedItemDestruction();
+    CityDamage();
+    CityDropsAndClock();
     ContestAndPlacement();
     CatchUpAndAbilities();
     ForestCombatAndFinish();
     WSACleanup();
-    std::puts("PASS: Forest exposure/release ordering, P1/P2 contest, catch-up, abilities, cap and duplicate pickups");
+    std::puts("PASS: Forest pickups and item destruction; City train damage, drops, and clock pickups");
 }

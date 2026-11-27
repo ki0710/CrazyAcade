@@ -91,7 +91,7 @@ public static partial class NetworkIntegrationTests
         }
         return result;
     }
-    const int CityStatePacketSize = 7;
+    const int CityStatePacketSize = 37;
     static byte[] ReceiveFrame(NetworkStream stream, uint match, out int type)
     {
         byte[] header = ReadExactly(stream, 10);
@@ -152,7 +152,7 @@ public static partial class NetworkIntegrationTests
         using (TcpClient raw = Connect()) {
             NetworkStream stream = raw.GetStream();
             if (approved) {
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 14});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 16});
                 stream.Write(hello, 0, hello.Length);
                 Check(Receive(stream, 2)[0] == 1, "Input test player not approved");
                 CheckRoomState(Receive(stream, 3), 1, 0, 0);
@@ -237,7 +237,7 @@ public static partial class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 2}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 3}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 4}), 3);
-            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 14}), 2);
+            ErrorCase(Frame(1, 1, new byte[] {0, 1, 0, 16}), 2);
             ErrorCase(Frame(2, 0, new byte[] {1}), 2);
             ErrorCase(Frame(1, 0, new byte[] {0}), 2);
             byte[] badLength = Frame(1, 0, new byte[0]); badLength[3] = 9;
@@ -271,6 +271,8 @@ public static partial class NetworkIntegrationTests
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 11}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 12}), 3);
             ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 13}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 14}), 3);
+            ErrorCase(Frame(1, 0, new byte[] {0, 1, 0, 15}), 3);
             RequestErrorCase(server, new byte[0], 0, true, 15);
             RequestErrorCase(server, new byte[] {1}, 0, true, 15);
             RequestErrorCase(server, new byte[] {2, 0, 1}, 0, true, 15);
@@ -281,7 +283,7 @@ public static partial class NetworkIntegrationTests
             RequestErrorCase(server, new byte[] {2, 255}, 0, true, 15);
             RequestErrorCase(server, new byte[] {1, 1}, 1, true, 15);
             RequestErrorCase(server, new byte[] {2, 0}, 0, false, 15);
-            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8/9/10/11/12/13 rejected");
+            Console.WriteLine("PASS: CS_SELECT malformed lengths/kinds/maps/colors/matchId/unapproved requests rejected; protocol 7/8/9/10/11/12/13/14/15 rejected");
             RequestErrorCase(server, new byte[0], 0, true, 12);
             RequestErrorCase(server, new byte[] {1}, 1, true, 12);
             RequestErrorCase(server, new byte[0], uint.MaxValue, true, 12);
@@ -291,7 +293,7 @@ public static partial class NetworkIntegrationTests
             mark = server.Mark;
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 14});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 16});
                 // Multiple writes exercise the live accumulated receive path.
                 for (int i = 0; i < hello.Length; ++i) stream.Write(hello, i, 1);
                 Check(Receive(stream, 2)[0] == 1, "Fragmented HELLO not accepted");
@@ -307,7 +309,7 @@ public static partial class NetworkIntegrationTests
             server.Wait("SC_ROOM_STATE: count=0", mark);
             using (TcpClient raw = Connect()) {
                 NetworkStream stream = raw.GetStream();
-                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 14});
+                byte[] hello = Frame(1, 0, new byte[] {0, 1, 0, 16});
                 stream.Write(hello, 0, 3);
                 raw.Client.Shutdown(SocketShutdown.Send);
                 Check(Receive(stream, 4)[1] == 2, "Truncated EOF not rejected");
@@ -535,10 +537,10 @@ public static partial class NetworkIntegrationTests
             server.Wait("Server listening");
             using (TcpClient first = Connect()) {
                 NetworkStream a = first.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 14); Receive(a, 2); Receive(a, 3);
+                Send(a, 1, 0, 0, 1, 0, 16); Receive(a, 2); Receive(a, 3);
                 using (TcpClient second = Connect()) {
                     NetworkStream b = second.GetStream();
-                    Send(b, 1, 0, 0, 1, 0, 14); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 1, 0, 0, 1, 0, 16); Receive(b, 2); Receive(b, 3); Receive(a, 3);
                     Send(a, 15, 0, 1, 2); Receive(a, 3); Receive(b, 3);
                     Send(a, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                     Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
@@ -596,10 +598,10 @@ public static partial class NetworkIntegrationTests
             server.Wait("Server listening");
             using (TcpClient first = Connect()) {
                 NetworkStream a = first.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 14); Receive(a, 2); Receive(a, 3);
+                Send(a, 1, 0, 0, 1, 0, 16); Receive(a, 2); Receive(a, 3);
                 using (TcpClient second = Connect()) {
                     NetworkStream b = second.GetStream();
-                    Send(b, 1, 0, 0, 1, 0, 14); Receive(b, 2); Receive(b, 3); Receive(a, 3);
+                    Send(b, 1, 0, 0, 1, 0, 16); Receive(b, 2); Receive(b, 3); Receive(a, 3);
                     Send(b, 11, 0, 1); Receive(a, 3); Receive(b, 3);
                     // Both-ready then SELECT in one accumulated read: no loading tick in between.
                     byte[] ready = Frame(11, 0, new byte[] {1});
