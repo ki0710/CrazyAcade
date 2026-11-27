@@ -5,9 +5,9 @@
 
 void init_train(Train& train) {
 	train.Pos.left = kCityTrainStartX;
-	train.Pos.top = 320;
-	train.Pos.right = train.Pos.left + 1029; // 기차 폭
-	train.Pos.bottom = train.Pos.top + 101; // 기차 높이
+	train.Pos.top = kCityTrainTop;
+	train.Pos.right = train.Pos.left + kCityTrainWidth; // 기차 폭
+	train.Pos.bottom = train.Pos.top + kCityTrainHeight; // 기차 높이
 
 	train.collisionP1 = false;
 	train.collisionP2 = false;
@@ -19,9 +19,8 @@ void init_train(Train& train) {
 void ApplyOnlineTrain(Train& train, int step) {
     train.is_spawned = step != 0;
     if (train.is_spawned) {
-        const int width = train.Pos.right - train.Pos.left;
-        train.Pos.left = kCityTrainStartX + (step - 1) * kCityTrainStepPixels;
-        train.Pos.right = train.Pos.left + width;
+        train.Pos.left = CityTrainLeft(step);
+        train.Pos.right = train.Pos.left + kCityTrainWidth;
     }
 }
 
@@ -33,7 +32,7 @@ int move_train(Train& train) {
 		if (train.Pos.left > kCityTrainEndX) {
 
 			train.Pos.left = kCityTrainStartX;
-			train.Pos.right = train.Pos.left + 1029; // 기차 폭
+			train.Pos.right = train.Pos.left + kCityTrainWidth; // 기차 폭
 			train.is_spawned = false; // 기차가 다시 생성되지 않도록 설정
 			train.collisionP1 = false; // 충돌 상태 초기화
 			train.collisionP2 = false; // 충돌 상태 초기화
@@ -64,7 +63,7 @@ void draw_train(HDC hdc, Train& train)
 		TransparentBlt(hdc, train.Pos.left, train.Pos.top,
 			train.Pos.right - train.Pos.left, train.Pos.bottom - train.Pos.top,
 			trainDC, 0, 0,
-			1029, 101,
+			kCityTrainWidth, kCityTrainHeight,
 			RGB(255, 0, 255));
 		SelectObject(trainDC, oldTrainBitmap);
 		DeleteDC(trainDC);

@@ -177,6 +177,33 @@ void ExposedItemDestruction() {
               "both clients remove the exposed item without applying a bonus");
 }
 
+void CityDamage() {
+    TestRoom test;
+    auto& room = test.room;
+    auto& world = room.mapItems;
+    world.stage = 2;
+    test.MoveTo(0, 3, 7); // P1 on the track, P2 safely north of it.
+    test.CopyInitialState();
+    test.Apply(test.Tick(2400));
+    Check(world.city.remaining[0] == 28 && world.city.remaining[1] == 28, "train still short of P1");
+    test.Apply(test.Tick(2800));
+    Check(world.city.remaining[0] == 23 && world.city.remaining[1] == 28, "train subtracts five seconds from P1");
+    test.Apply(test.Tick(2820));
+    Check(world.city.remaining[0] == 23, "same train does not repeatedly hit P1");
+    Check(TryPlaceBomb(room.bombs, room.nextBombId, 2, room.players[1],
+                       world.abilities[1], world.board, 2820), "City Bomb");
+    test.Apply(test.Tick(2840));
+    test.Apply(test.Tick(3880));
+    Check(world.city.remaining[0] == 22 && world.city.remaining[1] == 25,
+          "City Bomb deducts two seconds from the player it hits");
+    test.Apply(test.Tick(3900));
+    Check(world.city.remaining[1] == 25, "same blast does not deduct again");
+    test.Apply(test.Tick(9600));
+    for (const auto& view : test.views)
+        Check(view.city.remaining[0] == 11 && view.city.remaining[1] == 19,
+              "next train can deduct again; both receive the same time");
+}
+
 void ContestAndPlacement() {
     TestRoom test;
     auto& room = test.room;
@@ -280,6 +307,7 @@ int main() {
     Check(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock startup");
     ExposureAndOccupancy();
     ExposedItemDestruction();
+    CityDamage();
     ContestAndPlacement();
     CatchUpAndAbilities();
     ForestCombatAndFinish();

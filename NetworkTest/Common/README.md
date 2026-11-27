@@ -770,3 +770,10 @@ A wall-breaking blast reveals its hidden item. The item survives all blasts
 starting in the same server update. Later blasts remove an exposed item on
 the reached tile and send SC_EVENT kind 5 (uint16 cell ID, uint8 item type)
 to both clients. Destroying an item does not award its pickup effect.
+
+## City damage
+
+The server subtracts five seconds at most once per player per train pass.
+The train rectangle and interpolated player position use the same coordinates
+as the renderer. Each confirmed Bomb hit deducts two seconds. The server
+evaluates the outcome after applying these changes for the current tick.

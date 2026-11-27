@@ -137,6 +137,7 @@ public:
     Clock::time_point nextMoveTick;
     Clock::time_point gameEpoch;
     std::uint64_t lastCitySecond = 0;
+    std::uint64_t lastCityTrainHitPass[2]{};
     std::vector<ServerBomb> bombs;
     std::deque<int> pendingBombs;
     std::uint32_t nextBombId = 1, bombSequence = 0;
@@ -266,13 +267,30 @@ public:
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
-    bool TickCity(std::uint64_t milliseconds) {
+    bool TickCity(std::uint64_t milliseconds, const std::vector<int>& bombHits) {
         if (!IsPlaying() || mapItems.stage != 2) return false;
+        auto& city = mapItems.city;
         const auto seconds = milliseconds / 1000;
-        const bool clockChanged = AdvanceCityClock(mapItems.city, seconds - lastCitySecond);
+        bool changed = AdvanceCityClock(city, seconds - lastCitySecond);
         lastCitySecond = seconds;
-        const bool trainChanged = UpdateCityTrain(mapItems.city, milliseconds);
-        return clockChanged || trainChanged;
+        changed |= UpdateCityTrain(city, milliseconds);
+
+        for (int playerId : bombHits) changed |= ReduceCityTime(city, playerId - 1, kCityBombHitSeconds);
+        if (city.trainStep) {
+            const auto pass = milliseconds / kCityTrainCycleMs + 1;
+            for (int i = 0; i < 2; ++i) {
+                if (lastCityTrainHitPass[i] == pass) continue;
+                const auto& position = players[i].position;
+                const auto from = BoardCellCenter(position.cell.x, position.cell.y);
+                const auto to = BoardCellCenter(position.target.x, position.target.y);
+                const int x = from.x + (to.x - from.x) * position.progress / kCellUnits;
+                const int y = from.y + (to.y - from.y) * position.progress / kCellUnits;
+                if (!CityTrainHits(city.trainStep, x, y)) continue;
+                lastCityTrainHitPass[i] = pass;
+                changed |= ReduceCityTime(city, i, kCityTrainHitSeconds);
+            }
+        }
+        return changed;
     }
     void TickMovement(Clock::time_point now) {
         if (!NeedsGameTick()) return;
@@ -314,7 +332,7 @@ public:
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
         const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
-        const bool cityChanged = TickCity(milliseconds);
+        const bool cityChanged = TickCity(milliseconds, changes.hits);
         const bool cityEnded = mapItems.stage == 2 && FinishCityTick(mapItems.city);
         const bool ended = phase == Phase::Playing && (forestWon || iceEnded || cityEnded);
         if (ended) {
@@ -389,6 +407,7 @@ public:
             moveTick = 1;
             gameEpoch = Clock::now();
             lastCitySecond = 0;
+            lastCityTrainHitPass[0] = lastCityTrainHitPass[1] = 0;
             nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);
             Broadcast(PacketType::SC_MATCH_START, {}, matchId);
             BroadcastPlayers();
