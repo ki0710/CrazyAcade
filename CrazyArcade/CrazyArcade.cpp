@@ -236,6 +236,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static std::uint8_t sentDirection = network::kInputNone;
     static std::vector<std::uint8_t> roomState;
     static int requestedColor = -1; // Input cursor for presses before the server responds.
+    static bool peerLeftNotice = false;
     static network::MapItemState onlineMap;
     static network::BombFrame onlineBombFrame;
     static std::uint32_t lastCityHit = 0;
@@ -286,7 +287,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         };
         const auto showLobby = [&] {
             if (roomState.empty()) return;
-            const auto title = L"CrazyArcade Online | P" + std::to_wstring(onlinePlayerId) +
+            const auto title = std::wstring(L"CrazyArcade Online | ") +
+                (peerLeftNotice ? L"상대방이 게임에서 나갔습니다. | " : L"") +
+                L"P" + std::to_wstring(onlinePlayerId) +
                 L" | " + std::to_wstring(roomState[0]) + L"/2 | map " + std::to_wstring(roomState[3]) +
                 L" | ready " + std::to_wstring(roomState[1]) + L"/" + std::to_wstring(roomState[2]) +
                 (roomState[6] == onlinePlayerId ? L" | 1-3 map, " : L" | ") +
@@ -351,6 +354,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     invalid = id || !onlinePlayerId || !ValidRoomStatePayload(payload);
                     if (!invalid) {
                         roomState = payload;
+                        if (roomState[0] == 2) peerLeftNotice = false;
                         if (!onlineMatchId) {
                             showLobby();
                             redraw = true;
@@ -362,6 +366,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         roomState.empty() || !ApplyMapItemPacket(packet, onlineMap);
                     if (invalid) break;
                     clearOnlineDisplay();
+                    peerLeftNotice = false;
                     onlineMatchId = id;
                     requestedColor = -1;
                     playerTick = inputSequence = 0;
@@ -460,6 +465,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 case PacketType::SC_PEER_LEFT:
                     invalid = id || !onlinePlayerId || payload.size() != 1 || payload[0] < 1 ||
                         payload[0] > 2 || payload[0] == onlinePlayerId;
+                    if (!invalid) {
+                        peerLeftNotice = true;
+                        clearCityHits();
+                        if (!onlineMatchId) showLobby();
+                    }
                     break;
                 case PacketType::SC_STATE:
                 case PacketType::SC_EVENT:
@@ -543,6 +553,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             if (invalid || onlineConnection->Ended()) {
                 clearOnlineDisplay();
+                peerLeftNotice = false;
                 onlineMap = MapItemState{};
                 onlinePlaying = false;
                 selected_stage = 0;
