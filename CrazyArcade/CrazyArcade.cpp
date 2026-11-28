@@ -290,7 +290,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 L" | " + std::to_wstring(roomState[0]) + L"/2 | map " + std::to_wstring(roomState[3]) +
                 L" | ready " + std::to_wstring(roomState[1]) + L"/" + std::to_wstring(roomState[2]) +
                 (roomState[6] == onlinePlayerId ? L" | 1-3 map, " : L" | ") +
-                L"\u2190/\u2192 color, R ready, C cancel";
+                L"A/D color, R ready, C cancel";
             SetWindowText(hWnd, title.c_str());
         };
 
@@ -320,9 +320,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (wParam >= '1' && wParam <= '3' && roomState[6] == onlinePlayerId) {
                     send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Map),
                                                    static_cast<std::uint8_t>(wParam - '0')});
-                } else if (wParam == VK_LEFT || wParam == VK_RIGHT) {
+                } else if (wParam == 'A' || wParam == 'D') {
                     const int current = requestedColor < 0 ? roomState[3 + onlinePlayerId] : requestedColor;
-                    const auto color = static_cast<std::uint8_t>((current + (wParam == VK_LEFT ? 6 : 1)) % 7);
+                    const auto color = static_cast<std::uint8_t>((current + (wParam == 'A' ? 6 : 1)) % 7);
                     if (send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Color), color}))
                         requestedColor = color;
                 }
