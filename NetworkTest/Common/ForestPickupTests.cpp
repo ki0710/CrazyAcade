@@ -177,6 +177,50 @@ void ExposedItemDestruction() {
               "both clients remove the exposed item without applying a bonus");
 }
 
+std::vector<CityHitEvent> ApplyCityFrames(TestRoom& test, const std::vector<Packet>& frames) {
+    std::vector<CityHitEvent> hits;
+    for (const auto& frame : frames) {
+        if (frame.header.packetType != PacketType::SC_EVENT || frame.payload.empty() ||
+            frame.payload[0] != kCityHitEventKind) continue;
+        CityHitEvent hit;
+        Check(frame.header.matchId == test.room.matchId && ReadCityHitEvent(frame.payload, hit),
+              "City hit identifies current match and decodes");
+        hits.push_back(hit);
+    }
+    test.Apply(frames);
+    return hits;
+}
+
+void CityHitCodec() {
+    const auto payload = EncodeCityHitEvent({2, CityHitCause::Bomb, 0x12345678});
+    Check(payload == (std::vector<std::uint8_t>{7, 2, 2, 0x12, 0x34, 0x56, 0x78}), "City hit byte layout");
+    CityHitEvent hit;
+    Check(ReadCityHitEvent(payload, hit) && hit.playerId == 2 && hit.cause == CityHitCause::Bomb &&
+          hit.sequence == 0x12345678, "City hit round trip");
+    for (int value : {0, 3}) {
+        auto invalid = payload;
+        invalid[1] = static_cast<std::uint8_t>(value);
+        Check(!ReadCityHitEvent(invalid, hit), "invalid hit player");
+        invalid = payload;
+        invalid[2] = static_cast<std::uint8_t>(value);
+        Check(!ReadCityHitEvent(invalid, hit), "invalid hit cause");
+    }
+    Check(!ReadCityHitEvent({7, 1, 1, 0, 0, 0, 0}, hit), "invalid zero hit sequence");
+    Check(!ReadCityHitEvent({7, 1, 1, 0, 0, 1}, hit), "invalid short hit payload");
+    Check(EncodeCityHitEvent({0, CityHitCause::Bomb, 1}).empty(), "invalid hit cannot be encoded");
+    Packet packet;
+    packet.header.packetType = PacketType::SC_EVENT;
+    packet.payload = payload;
+    MapItemState state;
+    for (int stage : {0, 1, 3}) {
+        state.stage = stage;
+        Check(!ApplyMapItemPacket(packet, state), "City hit is not accepted for other stages");
+    }
+    state.stage = 2;
+    Check(ApplyMapItemPacket(packet, state) && state.city.remaining[1] == kCityStartSeconds,
+          "valid City hit does not change persistent state");
+}
+
 void CityDamage() {
     TestRoom test;
     auto& room = test.room;
@@ -184,24 +228,63 @@ void CityDamage() {
     world.stage = 2;
     test.MoveTo(0, 3, 7); // P1 on the track, P2 safely north of it.
     test.CopyInitialState();
-    test.Apply(test.Tick(2400));
+    Check(ApplyCityFrames(test, test.Tick(2400)).empty(), "natural time decrease is not a hit");
     Check(world.city.remaining[0] == 28 && world.city.remaining[1] == 28, "train still short of P1");
-    test.Apply(test.Tick(2800));
+    auto hits = ApplyCityFrames(test, test.Tick(2800));
+    Check(hits.size() == 1 && hits[0].playerId == 1 && hits[0].cause == CityHitCause::Train &&
+          hits[0].sequence == 1, "only P1 receives the first train hit");
     Check(world.city.remaining[0] == 23 && world.city.remaining[1] == 28, "train subtracts five seconds from P1");
-    test.Apply(test.Tick(2820));
+    Check(ApplyCityFrames(test, test.Tick(2820)).empty(), "same train pass sends no duplicate");
     Check(world.city.remaining[0] == 23, "same train does not repeatedly hit P1");
     Check(TryPlaceBomb(room.bombs, room.nextBombId, 2, room.players[1],
                        world.abilities[1], world.board, 2820), "City Bomb");
     test.Apply(test.Tick(2840));
-    test.Apply(test.Tick(3880));
+    hits = ApplyCityFrames(test, test.Tick(3880));
+    Check(hits.size() == 1 && hits[0].playerId == 2 && hits[0].cause == CityHitCause::Bomb &&
+          hits[0].sequence == 2, "only P2 receives the Bomb hit");
     Check(world.city.remaining[0] == 22 && world.city.remaining[1] == 25,
           "City Bomb deducts two seconds from the player it hits");
-    test.Apply(test.Tick(3900));
+    Check(ApplyCityFrames(test, test.Tick(3900)).empty(), "same Bomb sends no duplicate");
     Check(world.city.remaining[1] == 25, "same blast does not deduct again");
-    test.Apply(test.Tick(9600));
+    hits = ApplyCityFrames(test, test.Tick(9600));
+    Check(hits.size() == 1 && hits[0].sequence == 3, "next train sends a new sequence");
     for (const auto& view : test.views)
         Check(view.city.remaining[0] == 11 && view.city.remaining[1] == 19,
               "next train can deduct again; both receive the same time");
+}
+
+void CitySimultaneousHitsAndEnd() {
+    TestRoom test;
+    auto& room = test.room;
+    auto& world = room.mapItems;
+    world.stage = 2;
+    test.MoveTo(0, 3, 7);
+    test.MoveTo(1, 3, 8);
+    test.CopyInitialState();
+    auto hits = ApplyCityFrames(test, test.Tick(2800));
+    Check(hits.size() == 2 && hits[0].playerId == 1 && hits[1].playerId == 2 &&
+          hits[0].cause == CityHitCause::Train && hits[1].cause == CityHitCause::Train &&
+          hits[0].sequence == 1 && hits[1].sequence == 2, "one train hits both players");
+    Check(ApplyCityFrames(test, test.Tick(2820)).empty(), "neither train victim repeats");
+    Check(TryPlaceBomb(room.bombs, room.nextBombId, 1, room.players[0],
+                       world.abilities[0], world.board, 2820), "City Bomb within reach of both");
+    hits = ApplyCityFrames(test, test.Tick(3880));
+    Check(hits.size() == 2 && hits[0].playerId == 1 && hits[1].playerId == 2 &&
+          hits[0].cause == CityHitCause::Bomb && hits[1].cause == CityHitCause::Bomb &&
+          hits[0].sequence == 3 && hits[1].sequence == 4, "one Bomb hits both players");
+    Check(ApplyCityFrames(test, test.Tick(3900)).empty(), "neither Bomb victim repeats");
+
+    TestRoom end;
+    end.room.mapItems.stage = 2;
+    end.room.mapItems.city.remaining[0] = end.room.mapItems.city.remaining[1] = 3;
+    end.MoveTo(1, 3, 6);
+    Check(TryPlaceBomb(end.room.bombs, end.room.nextBombId, 1, end.room.players[0],
+                       end.room.mapItems.abilities[0], end.room.mapItems.board, 0), "round-ending City Bomb");
+    end.CopyInitialState();
+    const auto terminal = end.Tick(1060);
+    Check(ApplyCityFrames(end, terminal).empty() && end.views[0].city.result == CityResult::Draw &&
+          terminal.back().header.packetType == PacketType::SC_MATCH_END, "terminal damage shows the draw only");
+    Check(ApplyCityFrames(end, end.Tick(1620)).empty() && end.room.bombs.empty(), "finished blast expires quietly");
 }
 
 void CityDropsAndClock() {
@@ -249,6 +332,49 @@ void CityDropsAndClock() {
               "clock adds five to its collector before decay and two-second Bomb damage");
     clock.Apply(clock.Tick(1080));
     Check(city.city.remaining[0] == 3, "clock bonus and Bomb damage are not applied twice");
+
+    TestRoom clockOnly;
+    clockOnly.room.mapItems.stage = 2;
+    clockOnly.room.mapItems.city.remaining[0] = 10;
+    clockOnly.room.mapItems.board[6][2].item = kCityClockItem;
+    clockOnly.CopyInitialState();
+    Check(ApplyCityFrames(clockOnly, clockOnly.Tick(1020)).empty() &&
+          clockOnly.views[0].city.remaining[0] == 14, "clock pickup and decay without any hit");
+}
+
+void CityLandingAtBlast() {
+    for (const int explosion : {1980, 2020, 0}) {
+        TestRoom test;
+        auto& room = test.room;
+        auto& map = room.mapItems;
+        map.stage = 2;
+        const GridCell landing{5, 6};
+        room.cityDropTargets[0] = landing;
+        const auto end = BoardCellCenter(landing.x, landing.y);
+        const double distance = std::hypot(end.x - kCityDropStartX, end.y - kCityDropStartY);
+        room.cityDropStartedAt = 2000 - static_cast<int>(std::ceil(
+            distance * kCityTrainStepMs / kCityDropStepPixels));
+        map.city.fallingItems[0] = {kCityDropStartX, kCityDropStartY, 1};
+        if (explosion) {
+            MovingPlayer owner;
+            owner.position.cell = owner.position.target = {4, 6};
+            Check(TryPlaceBomb(room.bombs, room.nextBombId, 2, owner, map.abilities[1],
+                               map.board, explosion - kBombFuseMs), "Bomb near a landing");
+        } else {
+            test.MoveTo(0, landing.x, landing.y);
+        }
+        test.CopyInitialState();
+        test.Apply(test.Tick(1980));
+        Check(map.city.fallingItems[0].item == 1 && map.board[6][5].item == 0, "item is still airborne");
+        test.Apply(test.Tick(2000));
+        Check(!map.city.fallingItems[0].item && map.board[6][5].item == (explosion ? 1 : 0),
+              "landing after explosion or immediate pickup");
+        test.Apply(test.Tick(2020));
+        const int expectedItem = explosion == 1980 ? 1 : 0;
+        for (int i = 0; i < 2; ++i)
+            Check(test.views[i].board[6][5].item == expectedItem &&
+                  test.counts[i][0][0] == (explosion ? 0 : 1), "both views agree on landing, blast and pickup");
+    }
 }
 
 void ContestAndPlacement() {
@@ -354,11 +480,14 @@ int main() {
     Check(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock startup");
     ExposureAndOccupancy();
     ExposedItemDestruction();
+    CityHitCodec();
     CityDamage();
+    CitySimultaneousHitsAndEnd();
     CityDropsAndClock();
+    CityLandingAtBlast();
     ContestAndPlacement();
     CatchUpAndAbilities();
     ForestCombatAndFinish();
     WSACleanup();
-    std::puts("PASS: Forest pickups and item destruction; City train damage, drops, and clock pickups");
+    std::puts("PASS: Forest pickups and combat; City hit events, time, blast and landing order");
 }

@@ -236,8 +236,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static std::uint8_t sentDirection = network::kInputNone;
     static std::vector<std::uint8_t> roomState;
     static int requestedColor = -1; // Input cursor for presses before the server responds.
+    static bool peerLeftNotice = false;
     static network::MapItemState onlineMap;
     static network::BombFrame onlineBombFrame;
+    static std::uint32_t lastCityHit = 0;
+    static ULONGLONG cityHitUntil[2]{}, cityHitSoundUntil = 0;
 
     if (onlineConnection) {
         using namespace network;
@@ -245,6 +248,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (onlineConnection->Send(type, match, std::move(payload))) return true;
             onlineConnection->Stop();
             return false;
+        };
+        const auto clearCityHits = [&] {
+            lastCityHit = 0;
+            cityHitUntil[0] = cityHitUntil[1] = cityHitSoundUntil = 0;
+            p1.SetIsHit(false);
+            p2.SetIsHit(false);
         };
         const auto clearOnlineDisplay = [&] {
             p1bombs.clear();
@@ -260,8 +269,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             for (bool& key : keyStates) key = false;
             for (int& count : p1_current_item) count = 0;
             for (int& count : p2_current_item) count = 0;
-            p1.SetIsHit(false);
-            p2.SetIsHit(false);
+            clearCityHits();
         };
         const auto sendDirection = [&](bool placeBomb = false) {
             if (!onlinePlaying) return;
@@ -279,11 +287,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         };
         const auto showLobby = [&] {
             if (roomState.empty()) return;
-            const auto title = L"CrazyArcade Online | P" + std::to_wstring(onlinePlayerId) +
+            const auto title = std::wstring(L"CrazyArcade Online | ") +
+                (peerLeftNotice ? L"상대방이 게임에서 나갔습니다. | " : L"") +
+                L"P" + std::to_wstring(onlinePlayerId) +
                 L" | " + std::to_wstring(roomState[0]) + L"/2 | map " + std::to_wstring(roomState[3]) +
                 L" | ready " + std::to_wstring(roomState[1]) + L"/" + std::to_wstring(roomState[2]) +
                 (roomState[6] == onlinePlayerId ? L" | 1-3 map, " : L" | ") +
-                L"\u2190/\u2192 color, R ready, C cancel";
+                L"A/D color, R ready, C cancel";
             SetWindowText(hWnd, title.c_str());
         };
 
@@ -313,9 +323,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (wParam >= '1' && wParam <= '3' && roomState[6] == onlinePlayerId) {
                     send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Map),
                                                    static_cast<std::uint8_t>(wParam - '0')});
-                } else if (wParam == VK_LEFT || wParam == VK_RIGHT) {
+                } else if (wParam == 'A' || wParam == 'D') {
                     const int current = requestedColor < 0 ? roomState[3 + onlinePlayerId] : requestedColor;
-                    const auto color = static_cast<std::uint8_t>((current + (wParam == VK_LEFT ? 6 : 1)) % 7);
+                    const auto color = static_cast<std::uint8_t>((current + (wParam == 'A' ? 6 : 1)) % 7);
                     if (send(PacketType::CS_SELECT, 0, {static_cast<std::uint8_t>(SelectKind::Color), color}))
                         requestedColor = color;
                 }
@@ -344,6 +354,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     invalid = id || !onlinePlayerId || !ValidRoomStatePayload(payload);
                     if (!invalid) {
                         roomState = payload;
+                        if (roomState[0] == 2) peerLeftNotice = false;
                         if (!onlineMatchId) {
                             showLobby();
                             redraw = true;
@@ -355,6 +366,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         roomState.empty() || !ApplyMapItemPacket(packet, onlineMap);
                     if (invalid) break;
                     clearOnlineDisplay();
+                    peerLeftNotice = false;
                     onlineMatchId = id;
                     requestedColor = -1;
                     playerTick = inputSequence = 0;
@@ -453,10 +465,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 case PacketType::SC_PEER_LEFT:
                     invalid = id || !onlinePlayerId || payload.size() != 1 || payload[0] < 1 ||
                         payload[0] > 2 || payload[0] == onlinePlayerId;
+                    if (!invalid) {
+                        peerLeftNotice = true;
+                        clearCityHits();
+                        if (!onlineMatchId) showLobby();
+                    }
                     break;
                 case PacketType::SC_STATE:
                 case PacketType::SC_EVENT:
                 case PacketType::SC_MATCH_END: {
+                    if (packet.header.packetType == PacketType::SC_EVENT &&
+                        !payload.empty() && payload[0] == kCityHitEventKind) {
+                        if (!onlinePlaying || game_end || id != onlineMatchId || onlineMap.stage != 2 ||
+                            onlineMap.city.result != CityResult::Playing) break;
+                        CityHitEvent hit;
+                        invalid = !ReadCityHitEvent(payload, hit);
+                        if (invalid || hit.sequence <= lastCityHit) break;
+                        lastCityHit = hit.sequence;
+                        const auto now = GetTickCount64();
+                        cityHitUntil[hit.playerId - 1] = now + 500;
+                        (hit.playerId == 1 ? p1 : p2).SetIsHit(true);
+                        cityHitSoundUntil = now + 1000;
+                        redraw = true;
+                        break;
+                    }
                     if (packet.header.packetType == PacketType::SC_EVENT && id &&
                         (id <= previousMatchId || (onlineMatchId && id < onlineMatchId))) break;
                     ItemPickup pickup;
@@ -484,6 +516,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             ++itemCounts[pickup.item - 1];
                         }
                         if (packet.header.packetType == PacketType::SC_MATCH_END) {
+                            clearCityHits();
                             onlinePlaying = false;
                             game_end = true;
                             game_winner = onlineMap.stage == 1 ? onlineMap.forest.winner :
@@ -520,6 +553,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             if (invalid || onlineConnection->Ended()) {
                 clearOnlineDisplay();
+                peerLeftNotice = false;
                 onlineMap = MapItemState{};
                 onlinePlaying = false;
                 selected_stage = 0;
@@ -529,6 +563,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 else if (!onlinePlayerId) SetWindowText(hWnd, L"CrazyArcade Online | Cannot connect (check IPv4, port and protocol)");
                 else SetWindowText(hWnd, L"CrazyArcade Online | Disconnected");
                 redraw = true;
+            }
+            const auto now = GetTickCount64();
+            for (int i = 0; i < 2; ++i) {
+                if (!cityHitUntil[i]) continue;
+                if (now >= cityHitUntil[i]) {
+                    cityHitUntil[i] = 0;
+                    (i == 0 ? p1 : p2).SetIsHit(false);
+                }
+                redraw = true;
+            }
+            // Let the existing Bomb sound finish on the shared PlaySound channel.
+            if (cityHitSoundUntil &&
+                (now >= cityHitSoundUntil ||
+                 PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Die.wav"), nullptr,
+                           SND_FILENAME | SND_ASYNC | SND_NOSTOP | SND_NODEFAULT))) {
+                cityHitSoundUntil = 0;
             }
             if (redraw) InvalidateRect(hWnd, nullptr, FALSE);
             return 0;
@@ -1127,20 +1177,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     DeleteDC(uiDC);
 					HBITMAP p1bitmap = ResourceManager::GetBitmap(BitmapID::Player1Moving);
 					HBITMAP p2bitmap = ResourceManager::GetBitmap(BitmapID::Player2Moving);
-					HBITMAP pmask = ResourceManager::GetBitmap(BitmapID::PlayerMovingMask);
 					HDC p1DC = CreateCompatibleDC(mem);
 					HDC p2DC = CreateCompatibleDC(mem);
-					HBITMAP oldMaskBitmap = (HBITMAP)SelectObject(p1DC, pmask);
 					HBITMAP oldP1Bitmap = (HBITMAP)SelectObject(p1DC, p1bitmap);
 					HBITMAP oldP2Bitmap = (HBITMAP)SelectObject(p2DC, p2bitmap);
 					TransparentBlt(mem, 175, 150, 80, 50, p1DC, 0, 0, 50, 40, RGB(255, 0, 255));
 					TransparentBlt(mem, 1195, 150, 80, 50, p2DC, 0, 0, 50, 40, RGB(255, 0, 255));
-					SelectObject(p1DC, oldMaskBitmap);
 					SelectObject(p1DC, oldP1Bitmap);
 					SelectObject(p2DC, oldP2Bitmap);
 					DeleteDC(p1DC);
 					DeleteDC(p2DC);
-					DeleteObject(pmask);
                     //플레이어 아이템 출력
 					HBITMAP ItemPowerBitmap = ResourceManager::GetBitmap(BitmapID::ItemPower);
 					HBITMAP ItemBombCountBitmap = ResourceManager::GetBitmap(BitmapID::ItemBombCount);
@@ -1218,7 +1264,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         draw_tile_city(mem);
                         draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board);
                         draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board);
-						DrawGrid_City(mem, g_hInst, board, &p1, &p2,train);
+						DrawGrid_City(mem, g_hInst, board, &p1, &p2, train, onlineConnection != nullptr);
 
                         //플레이어 시간 출력
 						HBITMAP timeBitmap = ResourceManager::GetBitmap(BitmapID::CityClock);

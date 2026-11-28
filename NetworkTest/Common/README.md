@@ -135,7 +135,7 @@ $guiDirectory = Join-Path (Get-Location) 'Output\bin_debug'
 
 The working directory preserves the game's relative sound paths. Window titles
 identify P1/P2. The host selects 3 for Ice (recommended for damage/results),
-1 for Forest or 2 for City. Left/Right selects each player's color; R readies
+1 for Forest or 2 for City. A/D selects each player's color; R readies
 each window, C cancels before start. GUI snapshot loading sends CS_LOADED
 automatically. Both online players use WASD and Space in their focused window;
 key release or focus loss sends NONE. With one keyboard, switch focus between
@@ -211,14 +211,16 @@ connect; subsequent communication uses nonblocking sockets.
 ## CrazyArcade online movement and Bomb/Ice combat
 
 Build Server.exe, Client.exe and CrazyArcade.exe from the same revision
-(protocol **16**). Run Server.exe on the host, then run
+(protocol **17**). Run Server.exe on the host, then run
 `CrazyArcade.exe --online <server IPv4>` on each PC. `--online` alone uses
 127.0.0.1:9000; launching without arguments keeps the local game.
 
 The window title shows the assigned slot and readiness. The host selects
-1/2/3 (Forest/City/Ice). Left and Right cycle each player's own seven colors;
+1/2/3 (Forest/City/Ice). A and D cycle each player's own seven colors;
 the check mark follows the color confirmed by the server. R readies the local
 player, and C cancels their readiness before the match starts.
+When the server reports that the other player left, the lobby title keeps
+the departure notice until a replacement joins or a new match loads.
 The game applies the shared map snapshot before automatically sending
 CS_LOADED. After both load, both players use WASD to move and Space to place a Bomb.
 Releasing movement keys or losing focus sends NONE; an active tile step is
@@ -232,7 +234,7 @@ Online basic-item pickup is available in Forest and City. Online rematches are n
 ## Console movement diagnostic
 
 Old binaries are rejected by the HELLO version check. Existing packet
-numbers 1 through 16 are unchanged. The default server address is
+IDs are unchanged. The default server address is
 127.0.0.1:9000; Client.exe also accepts a server IPv4 argument.
 
 1. Start Server.exe, then Client.exe in two separate console windows.
@@ -281,7 +283,7 @@ size limit. Unknown packet types and invalid lengths are rejected.
 
 | Type | Value | Payload |
 | --- | --- | --- |
-| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (16) |
+| CS_HELLO | 1 | gameVersion uint16 (1), protocolVersion uint16 (17) |
 | SC_WELCOME | 2 | playerId uint8 (1 or 2) |
 | SC_ROOM_STATE | 3 | count, P1 ready, P2 ready, map, P1 color, P2 color, hostId (uint8 each) |
 | SC_ERROR | 4 | errorCode uint16 |
@@ -316,7 +318,7 @@ state, payload length, IDs, error codes, and matchId before printing.
 
 ## Map and basic item state
 
-Build the server and both clients together for protocol version 16. Once both
+Build the server and both clients together for protocol version 17. Once both
 players are ready, the server queues the same initial snapshot for both.
 The snapshot contains the stage byte, 400 row-major cells, and the two
 players' abilities in player-ID order. Each cell contains four bytes:
@@ -402,8 +404,8 @@ the integration harness does not claim to force those conditions on TCP.
 
 ## Lobby ready/cancel test
 
-Build both applications together for protocol version 16. Versions 1 through 15
-are rejected at HELLO because the ROOM_STATE/selection contract changed. Existing packet
+Build both applications together for protocol version 17. Versions 1 through 16
+are rejected at HELLO. Existing packet
 numbers 1 through 10 are unchanged; CS_READY is 11.
 
 After WELCOME, press R/r to ready and C/c to cancel, without Enter. W/A/S/D,
@@ -788,3 +790,45 @@ the landing tile. Kind 2 also carries City clock pickups (item kind 4);
 these add five seconds to the collector and do not change basic abilities.
 The server resolves all bonuses, elapsed time and damage before deciding
 the outcome of that tick.
+
+## City hit effects (protocol 17)
+
+SC_EVENT kind 7 has seven payload bytes. In order, they carry the kind (7),
+victim Player ID (1 or 2), cause (1 train or 2 Bomb), and a nonzero big-endian
+uint32 sequence. The packet header carries the match ID. The server assigns
+sequences starting at 1 for each match after confirming damage in the existing
+City tick. It omits the effects for a tick that ends the match. Natural time
+decay and the clock bonus still use the normal City state and item updates.
+The other wire layouts stay the same.
+
+Both game windows blink only the victim for about 500 ms and use the existing
+Die.wav. Victims in the same receive batch can share one sound on the existing
+PlaySound channel. A pending hit sound gives priority to Bomb placement and
+explosion audio and expires within one second. The client accepts increasing
+hit sequences for the active City match and clears transient effects during
+match transitions. The Console Client validates the event as a transient update.
+
+### November 28 plan and implementation
+
+- **Related plan sections.** 3-5 action flows, 5-5 server tick and theme rules,
+  5-6 state synchronization, 6 protocol and 8-2 schedule.
+- **Original plan.** Integrate City time, train hit indications and combat.
+- **Implementation.** Reused the team's server logic for City time, train and
+  Bomb damage, drops, clocks and results. Added the server-confirmed hit event
+  and linked it to both clients' rendering and sound. The integration test
+  follow-up also changes online lobby color keys to A/D and displays the
+  existing peer-left message in the title.
+- **Reason.** Time decay, clock pickups and damage can happen in the same
+  update. The explicit cause and victim let the clients show the confirmed
+  hit without guessing from the time total.
+- **Benefit.** Each client uses the same victim and match sequence. The
+  existing snapshot and City state layouts are preserved.
+- **Caution.** Update all three executables together. One City client exited
+  unexpectedly in the November 27 two-PC test. This change fixes a separate
+  GDI defect where WM_PAINT deleted the shared player mask. The previous
+  exit still has no identified cause. Keep the matching executable and PDB
+  if it happens again.
+- **Follow-up.** The November 29 full-state recovery can restore persistent
+  City state without replaying transient hit effects. R rematch consent and
+  Player/Bomb reset are scheduled for November 30. Latency optimization stays
+  in its own task.
