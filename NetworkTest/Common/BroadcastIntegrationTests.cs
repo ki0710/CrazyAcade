@@ -68,8 +68,8 @@ public static partial class NetworkIntegrationTests
             using (TcpClient first = Connect())
             using (TcpClient second = Connect()) {
                 NetworkStream a = first.GetStream(), b = second.GetStream();
-                Send(a, 1, 0, 0, 1, 0, 16); Check(Receive(a, 2)[0] == 1, "first slot"); Receive(a, 3);
-                Send(b, 1, 0, 0, 1, 0, 16); Check(Receive(b, 2)[0] == 2, "second slot");
+                Send(a, 1, 0, 0, 1, 0, 17); Check(Receive(a, 2)[0] == 1, "first slot"); Receive(a, 3);
+                Send(b, 1, 0, 0, 1, 0, 17); Check(Receive(b, 2)[0] == 2, "second slot");
                 Receive(b, 3); Receive(a, 3);
                 // Reuse the existing guaranteed City movement lane, independent of random obstacles.
                 Send(a, 15, 0, 1, 2); Receive(a, 3); Receive(b, 3);
@@ -141,7 +141,7 @@ public static partial class NetworkIntegrationTests
                 }
                 using (TcpClient replacement = Connect()) {
                     NetworkStream fresh = replacement.GetStream();
-                    Send(fresh, 1, 0, 0, 1, 0, 16);
+                    Send(fresh, 1, 0, 0, 1, 0, 17);
                     byte[] welcome = Receive(fresh, 2);
                     Check(welcome.Length == 1 && welcome[0] == slowId, "new connection must reuse free slot");
                     byte[] room = Receive(fresh, 3), peerRoom = Receive(healthy, 3);

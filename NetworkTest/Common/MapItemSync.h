@@ -31,6 +31,16 @@ std::vector<std::uint8_t> EncodeCityState(const CityState& state);
 enum class ForestAppleEvent : std::uint8_t { Gained = 3, Lost = 4 };
 std::vector<std::uint8_t> EncodeForestAppleEvent(ForestAppleEvent kind, int playerId, int carried);
 
+constexpr std::uint8_t kCityHitEventKind = 7;
+enum class CityHitCause : std::uint8_t { Train = 1, Bomb = 2 };
+struct CityHitEvent {
+    int playerId;
+    CityHitCause cause;
+    std::uint32_t sequence;
+};
+std::vector<std::uint8_t> EncodeCityHitEvent(const CityHitEvent& hit);
+bool ReadCityHitEvent(const std::vector<std::uint8_t>& payload, CityHitEvent& hit);
+
 struct ItemPickup {
     int playerId = 0;
     int item = 0;

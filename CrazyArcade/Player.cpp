@@ -48,9 +48,9 @@ void Player::Init_Player(POINT pos)
 }
 
 
-void Player::Draw_Player(HDC hdc, Player* p, int character)
+void Player::Draw_Player(HDC hdc, Player* p, int character, bool onlineBlink)
 {
-    if (p->GetIsHit()&& GetTickCount()%2==1)return;
+    if (p->GetIsHit() && (onlineBlink ? (GetTickCount64() / 80) % 2 == 1 : GetTickCount() % 2 == 1)) return;
     int mapSize = min(WINDOW_WIDTH, WINDOW_HEIGHT);
     int tile = mapSize / MAP_TILES;
     int ox = (WINDOW_WIDTH - mapSize) / 2;
@@ -283,7 +283,7 @@ void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILE
 
 }
 
-void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2, Train train)
+void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2, Train train, bool onlineBlink)
 {
     int mapSize = min(WINDOW_WIDTH, WINDOW_HEIGHT);
     int tile = mapSize / MAP_TILES / 2;
@@ -379,12 +379,12 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
             }
             // 플레이어 1을 그리기
             if (j == p1->GetX() && i == p1->GetY()) {
-                p1->Draw_Player(hdc, p1, p1->GetSelectedCharacter());
+                p1->Draw_Player(hdc, p1, p1->GetSelectedCharacter(), onlineBlink);
             }
 
             // 플레이어 2를 그리기
             if (j == p2->GetX() && i == p2->GetY()) {
-                p2->Draw_Player(hdc, p2, p2->GetSelectedCharacter());
+                p2->Draw_Player(hdc, p2, p2->GetSelectedCharacter(), onlineBlink);
             }
         }
     }

@@ -238,6 +238,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static int requestedColor = -1; // Input cursor for presses before the server responds.
     static network::MapItemState onlineMap;
     static network::BombFrame onlineBombFrame;
+    static std::uint32_t lastCityHit = 0;
+    static ULONGLONG cityHitUntil[2]{}, cityHitSoundUntil = 0;
 
     if (onlineConnection) {
         using namespace network;
@@ -245,6 +247,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (onlineConnection->Send(type, match, std::move(payload))) return true;
             onlineConnection->Stop();
             return false;
+        };
+        const auto clearCityHits = [&] {
+            lastCityHit = 0;
+            cityHitUntil[0] = cityHitUntil[1] = cityHitSoundUntil = 0;
+            p1.SetIsHit(false);
+            p2.SetIsHit(false);
         };
         const auto clearOnlineDisplay = [&] {
             p1bombs.clear();
@@ -260,8 +268,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             for (bool& key : keyStates) key = false;
             for (int& count : p1_current_item) count = 0;
             for (int& count : p2_current_item) count = 0;
-            p1.SetIsHit(false);
-            p2.SetIsHit(false);
+            clearCityHits();
         };
         const auto sendDirection = [&](bool placeBomb = false) {
             if (!onlinePlaying) return;
@@ -457,6 +464,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 case PacketType::SC_STATE:
                 case PacketType::SC_EVENT:
                 case PacketType::SC_MATCH_END: {
+                    if (packet.header.packetType == PacketType::SC_EVENT &&
+                        !payload.empty() && payload[0] == kCityHitEventKind) {
+                        if (!onlinePlaying || game_end || id != onlineMatchId || onlineMap.stage != 2 ||
+                            onlineMap.city.result != CityResult::Playing) break;
+                        CityHitEvent hit;
+                        invalid = !ReadCityHitEvent(payload, hit);
+                        if (invalid || hit.sequence <= lastCityHit) break;
+                        lastCityHit = hit.sequence;
+                        const auto now = GetTickCount64();
+                        cityHitUntil[hit.playerId - 1] = now + 500;
+                        (hit.playerId == 1 ? p1 : p2).SetIsHit(true);
+                        cityHitSoundUntil = now + 1000;
+                        redraw = true;
+                        break;
+                    }
                     if (packet.header.packetType == PacketType::SC_EVENT && id &&
                         (id <= previousMatchId || (onlineMatchId && id < onlineMatchId))) break;
                     ItemPickup pickup;
@@ -484,6 +506,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                             ++itemCounts[pickup.item - 1];
                         }
                         if (packet.header.packetType == PacketType::SC_MATCH_END) {
+                            clearCityHits();
                             onlinePlaying = false;
                             game_end = true;
                             game_winner = onlineMap.stage == 1 ? onlineMap.forest.winner :
@@ -529,6 +552,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 else if (!onlinePlayerId) SetWindowText(hWnd, L"CrazyArcade Online | Cannot connect (check IPv4, port and protocol)");
                 else SetWindowText(hWnd, L"CrazyArcade Online | Disconnected");
                 redraw = true;
+            }
+            const auto now = GetTickCount64();
+            for (int i = 0; i < 2; ++i) {
+                if (!cityHitUntil[i]) continue;
+                if (now >= cityHitUntil[i]) {
+                    cityHitUntil[i] = 0;
+                    (i == 0 ? p1 : p2).SetIsHit(false);
+                }
+                redraw = true;
+            }
+            // Let the existing Bomb sound finish on the shared PlaySound channel.
+            if (cityHitSoundUntil &&
+                (now >= cityHitSoundUntil ||
+                 PlaySound(TEXT("..\\..\\CrazyArcade\\Resource\\Sound\\Die.wav"), nullptr,
+                           SND_FILENAME | SND_ASYNC | SND_NOSTOP | SND_NODEFAULT))) {
+                cityHitSoundUntil = 0;
             }
             if (redraw) InvalidateRect(hWnd, nullptr, FALSE);
             return 0;
@@ -1214,7 +1253,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         draw_tile_city(mem);
                         draw_Bomb(mem, g_hInst, p1bombs.data(), static_cast<int>(p1bombs.size()), board);
                         draw_Bomb(mem, g_hInst, p2bombs.data(), static_cast<int>(p2bombs.size()), board);
-						DrawGrid_City(mem, g_hInst, board, &p1, &p2,train);
+						DrawGrid_City(mem, g_hInst, board, &p1, &p2, train, onlineConnection != nullptr);
 
                         //플레이어 시간 출력
 						HBITMAP timeBitmap = ResourceManager::GetBitmap(BitmapID::CityClock);

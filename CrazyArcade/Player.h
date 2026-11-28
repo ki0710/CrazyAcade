@@ -28,7 +28,7 @@ public:
    
     void Init_Player(POINT pos);
 
-    void Draw_Player(HDC hdc, Player* p, int character);
+    void Draw_Player(HDC hdc, Player* p, int character, bool onlineBlink = false);
 
     void on_applebox(Player* player, int* applebox, int boxX, int boxY);
     int collision_item(Player* player, Board board[MAP_TILES][MAP_TILES],int& Pcurrenttime);
@@ -92,7 +92,7 @@ void UpdatePlayerPosition(Player& player, float moveAmount);
 
 //맵 그리기 플레이어 연동
 void DrawGrid_Forest(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2);
-void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2,Train train);  
+void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2, Train train, bool onlineBlink = false);
 void DrawGrid_Ice(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES], Player* p1, Player* p2);
 
 //플레이어 색상 변경을 위해 필요한 함수들

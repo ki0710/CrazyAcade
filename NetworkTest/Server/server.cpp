@@ -138,6 +138,7 @@ public:
     Clock::time_point nextMoveTick;
     Clock::time_point gameEpoch;
     std::uint64_t lastCitySecond = 0;
+    std::uint32_t cityHitSequence = 0;
     std::uint64_t lastCityTrainHitPass[2]{};
     std::uint64_t lastCityDropPass = 0, cityDropStartedAt = 0;
     GridCell cityDropTargets[kCityDropCount]{};
@@ -338,13 +339,20 @@ public:
         const auto wait = std::chrono::duration_cast<std::chrono::microseconds>(nextMoveTick - now).count();
         return static_cast<long>((std::max)(0LL, (std::min)(20000LL, wait)));
     }
-    bool TickCity(std::uint64_t milliseconds, const std::vector<int>& bombHits) {
+    bool TickCity(std::uint64_t milliseconds, const std::vector<int>& bombHits,
+                  std::vector<CityHitEvent>& hits) {
         if (!IsPlaying() || mapItems.stage != 2) return false;
         auto& city = mapItems.city;
         const auto seconds = milliseconds / 1000;
         bool changed = AdvanceCityClock(city, seconds - lastCitySecond);
         lastCitySecond = seconds;
-        for (int playerId : bombHits) changed |= ReduceCityTime(city, playerId - 1, kCityBombHitSeconds);
+        const auto applyHit = [&](int playerId, int seconds, CityHitCause cause) {
+            if (ReduceCityTime(city, playerId - 1, seconds)) {
+                changed = true;
+                hits.push_back({playerId, cause, 0});
+            }
+        };
+        for (int playerId : bombHits) applyHit(playerId, kCityBombHitSeconds, CityHitCause::Bomb);
         if (city.trainStep) {
             const auto pass = milliseconds / kCityTrainCycleMs + 1;
             for (int i = 0; i < 2; ++i) {
@@ -356,7 +364,7 @@ public:
                 const int y = from.y + (to.y - from.y) * position.progress / kCellUnits;
                 if (!CityTrainHits(city.trainStep, x, y)) continue;
                 lastCityTrainHitPass[i] = pass;
-                changed |= ReduceCityTime(city, i, kCityTrainHitSeconds);
+                applyHit(i + 1, kCityTrainHitSeconds, CityHitCause::Train);
             }
         }
         return changed;
@@ -408,7 +416,8 @@ public:
         const bool forestChanged = ResolveForestChanges(changes.treeOwners, changes.hits);
         const bool forestWon = mapItems.stage == 1 && mapItems.forest.winner != 0;
         const bool iceEnded = mapItems.stage == 3 && mapItems.ice.result != IceResult::Playing;
-        cityChanged |= TickCity(milliseconds, changes.hits);
+        std::vector<CityHitEvent> cityHits;
+        cityChanged |= TickCity(milliseconds, changes.hits, cityHits);
         const bool cityEnded = mapItems.stage == 2 && FinishCityTick(mapItems.city);
         const bool ended = phase == Phase::Playing && (forestWon || iceEnded || cityEnded);
         if (ended) {
@@ -435,6 +444,12 @@ public:
             const auto result = forestWon ? EncodeForestState(mapItems.forest) :
                 cityEnded ? EncodeCityState(mapItems.city) : EncodeIceState(mapItems.ice);
             Broadcast(PacketType::SC_MATCH_END, result, matchId);
+        } else {
+            for (auto& hit : cityHits) {
+                if (cityHitSequence == (std::numeric_limits<std::uint32_t>::max)()) break;
+                hit.sequence = ++cityHitSequence;
+                Broadcast(PacketType::SC_EVENT, EncodeCityHitEvent(hit), matchId);
+            }
         }
     }
     void Tick() {
@@ -484,6 +499,7 @@ public:
             moveTick = 1;
             gameEpoch = Clock::now();
             lastCitySecond = 0;
+            cityHitSequence = 0;
             lastCityTrainHitPass[0] = lastCityTrainHitPass[1] = 0;
             lastCityDropPass = cityDropStartedAt = 0;
             nextMoveTick = Clock::now() + std::chrono::milliseconds(kMoveTickMs);

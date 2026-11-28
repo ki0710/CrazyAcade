@@ -258,6 +258,6 @@ int main() {
     Check(TryPlaceBomb(bombs, next, 1, moving, ability, board, 0));
     Check(bombs[0].col == 7 && board[11][7].obstacle == 9 && board[11][8].obstacle == 0);
     Check(InputPayload(kInputRight, 3, true) == (std::vector<std::uint8_t>{8, 0, 0, 0, 3, 1}));
-    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 16}));
+    Check(HelloPayload() == (std::vector<std::uint8_t>{0, 1, 0, 17}));
     std::cout << "Bomb/Ice/codecs: " << checks << " checks passed.\n";
 }

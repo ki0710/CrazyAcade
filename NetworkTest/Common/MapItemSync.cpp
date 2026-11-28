@@ -211,6 +211,10 @@ bool ApplyIceUpdate(const Packet& packet, MapItemState& state) {
 
 bool ApplyEvent(const std::vector<std::uint8_t>& payload, MapItemState& state, ItemPickup* pickup) {
     if (state.stage == 0 || payload.empty()) return false;
+    if (payload[0] == kCityHitEventKind) {
+        CityHitEvent hit;
+        return state.stage == 2 && ReadCityHitEvent(payload, hit);
+    }
     if (payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Gained) ||
         payload[0] == static_cast<std::uint8_t>(ForestAppleEvent::Lost)) {
         if (state.stage != 1 || state.forest.winner || payload.size() != 6 ||
@@ -335,6 +339,29 @@ std::vector<std::uint8_t> EncodeForestAppleEvent(ForestAppleEvent kind, int play
     AppendWord(payload, carried >> 16);
     AppendWord(payload, carried);
     return payload;
+}
+
+static bool ValidCityHit(const CityHitEvent& hit) {
+    return hit.playerId >= 1 && hit.playerId <= 2 && hit.sequence != 0 &&
+        (hit.cause == CityHitCause::Train || hit.cause == CityHitCause::Bomb);
+}
+
+std::vector<std::uint8_t> EncodeCityHitEvent(const CityHitEvent& hit) {
+    if (!ValidCityHit(hit)) return {};
+    std::vector<std::uint8_t> payload = {kCityHitEventKind, static_cast<std::uint8_t>(hit.playerId),
+                                       static_cast<std::uint8_t>(hit.cause)};
+    AppendWord(payload, hit.sequence >> 16);
+    AppendWord(payload, hit.sequence & 0xffff);
+    return payload;
+}
+
+bool ReadCityHitEvent(const std::vector<std::uint8_t>& payload, CityHitEvent& hit) {
+    if (payload.size() != 7 || payload[0] != kCityHitEventKind) return false;
+    const CityHitEvent decoded = {payload[1], static_cast<CityHitCause>(payload[2]),
+        (std::uint32_t(PayloadWord(payload.data() + 3)) << 16) | PayloadWord(payload.data() + 5)};
+    if (!ValidCityHit(decoded)) return false;
+    hit = decoded;
+    return true;
 }
 
 std::vector<std::uint8_t> EncodeIceState(const IceState& state) {
