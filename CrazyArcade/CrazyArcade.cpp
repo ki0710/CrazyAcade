@@ -1127,20 +1127,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     DeleteDC(uiDC);
 					HBITMAP p1bitmap = ResourceManager::GetBitmap(BitmapID::Player1Moving);
 					HBITMAP p2bitmap = ResourceManager::GetBitmap(BitmapID::Player2Moving);
-					HBITMAP pmask = ResourceManager::GetBitmap(BitmapID::PlayerMovingMask);
 					HDC p1DC = CreateCompatibleDC(mem);
 					HDC p2DC = CreateCompatibleDC(mem);
-					HBITMAP oldMaskBitmap = (HBITMAP)SelectObject(p1DC, pmask);
 					HBITMAP oldP1Bitmap = (HBITMAP)SelectObject(p1DC, p1bitmap);
 					HBITMAP oldP2Bitmap = (HBITMAP)SelectObject(p2DC, p2bitmap);
 					TransparentBlt(mem, 175, 150, 80, 50, p1DC, 0, 0, 50, 40, RGB(255, 0, 255));
 					TransparentBlt(mem, 1195, 150, 80, 50, p2DC, 0, 0, 50, 40, RGB(255, 0, 255));
-					SelectObject(p1DC, oldMaskBitmap);
 					SelectObject(p1DC, oldP1Bitmap);
 					SelectObject(p2DC, oldP2Bitmap);
 					DeleteDC(p1DC);
 					DeleteDC(p2DC);
-					DeleteObject(pmask);
                     //플레이어 아이템 출력
 					HBITMAP ItemPowerBitmap = ResourceManager::GetBitmap(BitmapID::ItemPower);
 					HBITMAP ItemBombCountBitmap = ResourceManager::GetBitmap(BitmapID::ItemBombCount);

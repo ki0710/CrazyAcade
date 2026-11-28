@@ -87,14 +87,13 @@ void Player::Draw_Player(HDC hdc, Player* p, int character)
         RGB(255, 0, 255)
     );
     HBITMAP hbitmapPlayermask = ResourceManager::GetBitmap(BitmapID::PlayerMovingMask);
-    HBITMAP oldBitmapmask = (HBITMAP)SelectObject(memDC, hbitmapPlayermask);
+    SelectObject(memDC, hbitmapPlayermask);
     TransparentBlt(
         hdc, drawX, drawY - 2 * MAP_TILES + 10, MAP_TILES * 2, MAP_TILES * 3,
         memDC, spriteX, spriteY, 50, 60,
         RGB(255, 0, 255)
     );
     SelectObject(memDC, oldBitmap);
-    SelectObject(memDC, oldBitmapmask);
     DeleteDC(memDC);
 }
 void Player::on_applebox(Player* player, int* applebox, int boxX, int boxY)
@@ -315,7 +314,6 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
 	HDC BlinkerDC = CreateCompatibleDC(hdc);
 	HBITMAP oldBlinkerBitmap = (HBITMAP)SelectObject(BlinkerDC, BlinkerBitmap);
 	HBITMAP BlinkerBitmapON = ResourceManager::GetBitmap(BitmapID::CityBlinkerON);
-	HBITMAP oldBlinkerBitmapON = (HBITMAP)SelectObject(BlinkerDC, BlinkerBitmapON);
 
 	// 아이템 리소스
     HBITMAP itemBitmap[4];
@@ -373,12 +371,11 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
             }
             if(i==10&&j==0) draw_train(hdc, train);
             if (board[i][j].item >= 1 && board[i][j].obstacle == 0) {
-                oldItemBitmap = (HBITMAP)SelectObject(itemDC, itemBitmap[board[i][j].item - 1]);
+                SelectObject(itemDC, itemBitmap[board[i][j].item - 1]);
 				if (board[i][j].item == 4) // 시계 아이템
 					TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 40, 46, RGB(255, 0, 255));
 				else
                 TransparentBlt(hdc, GetBoardScreenPosition(j, i).x - MAP_TILES, GetBoardScreenPosition(j, i).y - MAP_TILES - 10, 2 * MAP_TILES, 2 * MAP_TILES, itemDC, 0, 0, 38, 38, RGB(255, 0, 255));
-                SelectObject(itemDC, oldItemBitmap);
             }
             // 플레이어 1을 그리기
             if (j == p1->GetX() && i == p1->GetY()) {
@@ -413,7 +410,6 @@ void DrawGrid_City(HDC hdc, HINSTANCE g_hInst, Board board[MAP_TILES][MAP_TILES]
 	SelectObject(TrashboxDC, oldTrashboxBitmap);
 	DeleteDC(TrashboxDC);
 	SelectObject(BlinkerDC, oldBlinkerBitmap);
-	SelectObject(BlinkerDC, oldBlinkerBitmapON);
     DeleteDC(BlinkerDC);
 	SelectObject(itemDC, oldItemBitmap);
 	DeleteDC(itemDC);
